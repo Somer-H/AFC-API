@@ -20,7 +20,7 @@ class DatabaseSchemaTests {
     private static final List<String> EXPECTED_TABLES = List.of(
             "app_user", "member", "password_reset_token", "check_in", "jwt_blocklist", "payment",
             "category", "supplier", "product", "inventory_movement", "sale", "sale_item",
-            "coach", "schedule_block", "booking");
+            "coach", "schedule_block", "booking", "routine", "exercise");
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -158,6 +158,30 @@ class DatabaseSchemaTests {
         jdbc.update("UPDATE member SET user_id = ? WHERE id = ?", userId, first);
         assertThrows(DataIntegrityViolationException.class,
                 () -> jdbc.update("UPDATE member SET user_id = ? WHERE id = ?", userId, second));
+    }
+
+    @Test
+    void givenTwoRoutinesForTheSameDay_whenInserting_thenThrowDataIntegrityViolationException() {
+        long coachId = insertCoach();
+        jdbc.update("INSERT INTO routine (day_of_week, title, coach_id) VALUES ('MONDAY', 'Pierna', ?)", coachId);
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO routine (day_of_week, title, coach_id) VALUES ('MONDAY', 'Brazo', ?)", coachId));
+    }
+
+    @Test
+    void givenAnExerciseWithUrlAndFile_whenInserting_thenThrowDataIntegrityViolationException() {
+        long coachId = insertCoach();
+        jdbc.update("INSERT INTO routine (day_of_week, title, coach_id) VALUES ('FRIDAY', 'Pierna', ?)", coachId);
+        long routineId = jdbc.queryForObject("SELECT id FROM routine WHERE day_of_week = 'FRIDAY'", Long.class);
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO exercise (routine_id, sort_order, name, sets, reps, video_url, video_file) "
+                        + "VALUES (?, 0, 'Sentadilla', 4, '10', 'https://youtu.be/a', 'abc.mp4')",
+                routineId));
+    }
+
+    private long insertCoach() {
+        jdbc.update("INSERT INTO coach (name) VALUES ('Coach Schema')");
+        return jdbc.queryForObject("SELECT MAX(id) FROM coach", Long.class);
     }
 
     private long insertMember(String fullName) {

@@ -7,7 +7,8 @@ Base de datos H2 en desarrollo y PostgreSQL en producción.
 Este backend reemplaza los datos simulados del frontend de AFC App (Expo/React Native, en `../AFC-APP`). Cubre, del
 cronograma (`Cronograma-backend-AFC-Gym.xlsx`): Infraestructura, Autenticación y acceso (HU-01 a HU-06), Gestión de
 socios (HU-07 a HU-12), Membresías y pagos (HU-13 a HU-19), Tienda e inventario (HU-20 a HU-25), Ventas / POS
-(HU-26 a HU-28), Caja y corte de caja (HU-29 a HU-31) y Horarios, clases y capacidad (HU-32 a HU-36) — ver
+(HU-26 a HU-28), Caja y corte de caja (HU-29 a HU-31), Horarios, clases y capacidad (HU-32 a HU-36) y Rutinas y
+ejercicios (HU-37 a HU-40) — ver
 `Historias-de-Usuario-AFC-Gym.docx`.
 
 ## Abrir y correr el proyecto en IntelliJ IDEA
@@ -48,7 +49,7 @@ Pasa cuando un antivirus o proxy inspecciona HTTPS. En IntelliJ:
 
 ### Pruebas
 
-Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 32 clases de prueba (248 pruebas) ya pasan en
+Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 35 clases de prueba (283 pruebas) ya pasan en
 este repositorio (`./mvnw test`, perfil `test`, H2 en memoria).
 
 ## Perfiles
@@ -69,6 +70,7 @@ Producción se activa con `SPRING_PROFILES_ACTIVE=prod` y estas variables de ent
 | `BOOTSTRAP_ADMIN_PASSWORD` | Contraseña del primer usuario administrador. Solo se usa si todavía no existe ningún usuario | Solo la primera vez |
 | `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_FULL_NAME`, `BOOTSTRAP_ADMIN_EMAIL` | Datos de ese primer usuario | No |
 | `ALLOWED_ORIGINS` | Direcciones del frontend permitidas por CORS, separadas por comas | Sí, con el frontend desplegado |
+| `VIDEOS_DIRECTORY` | Carpeta donde se guardan los videos subidos de los ejercicios (por defecto `./data/videos`). En producción tiene que ser un disco persistente | Sí, si se suben videos |
 
 En producción Swagger y la documentación de la API quedan desactivados.
 
@@ -97,6 +99,9 @@ La API usa tokens JWT (válidos 1 hora). El token se envía en el encabezado `Au
 | `GET /v1/schedule-blocks/occupancy` | `ADMIN` y `SOCIO` |
 | `POST /v1/bookings`, `PATCH /v1/bookings/{id}/cancel` | `ADMIN` y `SOCIO` (el socio solo sobre sus propias reservas) |
 | `GET /v1/bookings/me` | Solo `SOCIO` |
+| `POST`/`GET /v1/routines`, `GET`/`PUT`/`DELETE /v1/routines/{id}`, `POST`/`DELETE /v1/routines/{id}/exercises/{exerciseId}/video` | Solo `ADMIN` |
+| `GET /v1/routines/by-day` | `ADMIN` y `SOCIO` |
+| `GET /v1/exercise-videos/{archivo}` | Cualquiera (es público, ver abajo) |
 | `POST /v1/check-ins` | Solo `ADMIN` |
 
 Cada vez que se agregue un endpoint hay que decidir qué roles lo usan en `configuration/security/SecurityConfiguration`.
@@ -249,6 +254,47 @@ para saber dónde hay lugar.
   (otro socio recibe `403`) o un admin. No se puede cancelar una clase que ya empezó.
 - `GET /v1/bookings/me` le muestra al socio sus próximas reservas activas.
 
+### Rutinas y ejercicios
+
+**Alta (HU-37) y un solo set por día (HU-38)**: `POST /v1/routines`
+
+```json
+{
+  "dayOfWeek": "MONDAY",
+  "title": "Pierna",
+  "description": "Calentar 10 minutos",
+  "coachId": 1,
+  "exercises": [
+    { "name": "Sentadilla", "sets": 4, "reps": "10-12", "restSeconds": 90 },
+    { "name": "Peso muerto", "sets": 3, "reps": "Al fallo", "videoUrl": "https://youtu.be/abc" }
+  ]
+}
+```
+
+- El coach y al menos un ejercicio son obligatorios; máximo 8 ejercicios. Los ejercicios se guardan en el orden en que
+  se mandan. `reps` es texto libre (`"10-12"`, `"Al fallo"`), `restSeconds` es opcional.
+- Solo puede haber una rutina por día: si el día ya tiene una, responde `409` con
+  `"Ya hay una rutina para el lunes; edítala o elimínala primero"`. La base de datos también lo impide.
+- `PUT /v1/routines/{id}` reemplaza la rutina completa. Los ejercicios que se mandan **con su `id`** se conservan (y
+  conservan su video subido); los que vienen sin `id` se crean; los que no vienen se borran.
+- `DELETE /v1/routines/{id}` borra la rutina (y sus videos) y deja el día libre.
+
+**Video por ejercicio (HU-39)**: cada ejercicio tiene un video por URL **o** por archivo, nunca los dos.
+
+- Por URL: el campo `videoUrl` del ejercicio (tiene que empezar con `http://` o `https://`).
+- Por archivo: `POST /v1/routines/{id}/exercises/{exerciseId}/video`, formulario `multipart/form-data` con el campo
+  `file`. Acepta MP4, MOV o WEBM de hasta 100 MB. Subir un archivo quita la URL que hubiera, y viceversa.
+- `DELETE /v1/routines/{id}/exercises/{exerciseId}/video` le quita el video, sea URL o archivo.
+- En la respuesta, cada ejercicio trae `videoType` (`URL`, `FILE` o nada) y `videoUrl`, que ya es la dirección para
+  reproducirlo: la URL externa, o `/v1/exercise-videos/<archivo>` si es un archivo subido.
+- `GET /v1/exercise-videos/<archivo>` sirve el video con soporte de `Range` (lo que usan los reproductores para
+  adelantar). Es público a propósito: el reproductor de video del celular o del navegador no puede mandar el token, y el
+  nombre del archivo es aleatorio (32 caracteres), así que no se puede adivinar.
+
+**Rutina del día (HU-40)**: `GET /v1/routines/by-day` (hoy) o `?dayOfWeek=FRIDAY`. Trae coach, descripción y los
+ejercicios con series, repeticiones, descanso y video. Si ese día no tiene rutina responde `404` con
+`"No hay rutina asignada para el viernes"`.
+
 ### Probarlo desde Swagger (en desarrollo)
 
 1. Abre http://localhost:8091/swagger-ui.html.
@@ -298,6 +344,7 @@ Una migración ya aplicada nunca se edita: se crea una nueva (`V2__description.s
 | `V4__store.sql` | Tablas `category`, `supplier`, `product` e `inventory_movement` |
 | `V5__sales.sql` | Tablas `sale` (folio, total, método de pago, cajero) y `sale_item` (renglones del ticket) |
 | `V6__schedules.sql` | Tablas `coach`, `schedule_block` y `booking`, y la columna `member.user_id` que liga a un socio con su cuenta de acceso |
+| `V7__routines.sql` | Tablas `routine` (una por día de la semana) y `exercise` (con su URL o archivo de video, nunca ambos) |
 
 El estado del socio (`ACTIVE`/`EXPIRED`/`TO_PURGE`) **no se guarda en la base de datos**: se calcula siempre al vuelo
 a partir de `due_date`, como pide Requerimientos-AFC-Gym.docx ("nunca se confía en un valor enviado por el cliente").
@@ -321,7 +368,10 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
 `POST /v1/coaches`, `GET /v1/coaches`, `POST /v1/schedule-blocks`, `GET /v1/schedule-blocks`,
 `GET /v1/schedule-blocks/occupancy`, `GET /v1/schedule-blocks/{id}`, `PUT /v1/schedule-blocks/{id}`,
 `PATCH /v1/schedule-blocks/{id}/activate`, `PATCH /v1/schedule-blocks/{id}/deactivate`, `POST /v1/bookings`,
-`GET /v1/bookings/me`, `PATCH /v1/bookings/{id}/cancel`, `POST /v1/check-ins`.
+`GET /v1/bookings/me`, `PATCH /v1/bookings/{id}/cancel`, `POST /v1/routines`, `GET /v1/routines`,
+`GET /v1/routines/by-day`, `GET /v1/routines/{id}`, `PUT /v1/routines/{id}`, `DELETE /v1/routines/{id}`,
+`POST /v1/routines/{id}/exercises/{exerciseId}/video`, `DELETE /v1/routines/{id}/exercises/{exerciseId}/video`,
+`GET /v1/exercise-videos/{archivo}`, `POST /v1/check-ins`.
 
 ## Decisiones tomadas para poder construir esto ya (a confirmar con el negocio)
 
@@ -360,3 +410,11 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
   horario.
 - Para reservar se exige que la membresía esté vigente; no hay límite de con cuánta anticipación se puede reservar
   (si el negocio quiere, por ejemplo, "máximo 7 días antes", es un cambio chico).
+- **Dónde se guardan los videos:** el HU-39 deja el almacenamiento "por decidir" (S3, Cloudinary, Supabase). Por
+  ahora se guardan en una carpeta del servidor (`VIDEOS_DIRECTORY`). Funciona en desarrollo y en un servidor con disco
+  propio; en un hosting sin disco persistente (muchos planes gratuitos) los videos se perderían al reiniciar. Cambiar a
+  S3/Cloudinary solo toca `LocalVideoStorageServiceImpl` (todo lo demás usa la interfaz `IVideoStorageService`).
+- Las rutinas son por día de la semana y las ven todos los socios; no se asignan a socios específicos (el HU-40 pide
+  "la rutina correspondiente al día", no una rutina personal).
+- Cuando un día no tiene rutina, el endpoint responde `404` con el mensaje en lugar de una respuesta vacía, para que el
+  frontend pueda mostrar ese texto tal cual.

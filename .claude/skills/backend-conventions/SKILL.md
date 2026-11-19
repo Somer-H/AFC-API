@@ -127,6 +127,7 @@ Dependency rule: `web.controllers -> service -> persistance.repositories -> pers
 - Queries come from derived method names or `JpaSpecificationExecutor` + a `<Name>Specifications` class. `@EntityGraph` and `@Lock` are allowed because they carry no query text; `@Query`, native SQL and `JdbcTemplate` are not.
 - Stock or balance changes that must be atomic read the row with `@Lock(LockModeType.PESSIMISTIC_WRITE)` (`findWithLockById`). When several rows are locked in one transaction, lock them in ascending id order to avoid deadlocks.
 - Human-readable codes built from the id (`SOC-000001`, `V-000001`) are saved first with a random temporary value (`"TMP-" + SecureTokenGenerator.generate(8)`), then assigned through the entity's behaviour method. Never derive the temporary value from the clock: two inserts in the same millisecond collide on the `UNIQUE` constraint.
+- Uploaded files go through `IVideoStorageService` (today `LocalVideoStorageServiceImpl`, a folder set by `app.storage.videos-directory`); services never touch the file system directly. Store the new file first and save only its generated name in the entity; old files are removed with `deleteAfterCommit` so a rolled-back transaction never loses a file still referenced, and a stored file is deleted again if its transaction rolls back.
 - Dev profile: H2 file database. Test profile: H2 in memory. Prod profile: PostgreSQL through `DB_URL`, `DB_USER`, `DB_PASSWORD`.
 
 ## 7. Errors
