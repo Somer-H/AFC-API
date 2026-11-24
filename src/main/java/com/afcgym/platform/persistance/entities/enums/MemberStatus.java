@@ -8,7 +8,7 @@ public enum MemberStatus {
     EXPIRED,
     TO_PURGE;
 
-    private static final long TO_PURGE_THRESHOLD_DAYS = 60;
+    public static final long TO_PURGE_THRESHOLD_DAYS = 60;
 
     public static MemberStatus fromDueDate(LocalDate dueDate) {
         long daysLate = ChronoUnit.DAYS.between(dueDate, LocalDate.now());

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.afcgym.platform.exception.BadRequestException;
@@ -19,6 +20,7 @@ import com.afcgym.platform.persistance.entities.enums.PaymentStatus;
 import com.afcgym.platform.persistance.repositories.ICheckInRepository;
 import com.afcgym.platform.persistance.repositories.IPaymentRepository;
 import com.afcgym.platform.service.IMemberService;
+import com.afcgym.platform.service.dto.MembershipRenewedEvent;
 import com.afcgym.platform.service.dto.RenewMembershipCommand;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -33,6 +35,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentServiceImplTest {
@@ -45,6 +48,9 @@ class PaymentServiceImplTest {
 
     @Mock
     private IMemberService memberService;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private PaymentServiceImpl paymentService;
@@ -76,6 +82,7 @@ class PaymentServiceImplTest {
         assertEquals(PaymentStatus.APPROVED, result.getStatus());
         assertEquals(0, result.getDiscountPercent());
         verify(memberService).renew(1L, MembershipType.MONTHLY);
+        verify(eventPublisher).publishEvent(new MembershipRenewedEvent(1L));
     }
 
     @Test
@@ -89,6 +96,7 @@ class PaymentServiceImplTest {
 
         assertEquals(PaymentStatus.PENDING, result.getStatus());
         verify(memberService, never()).renew(any(), any());
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test
@@ -148,6 +156,7 @@ class PaymentServiceImplTest {
 
         assertEquals(PaymentStatus.APPROVED, result.getStatus());
         verify(memberService).renew(1L, MembershipType.MONTHLY);
+        verify(eventPublisher).publishEvent(new MembershipRenewedEvent(1L));
     }
 
     @Test

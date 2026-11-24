@@ -7,7 +7,8 @@ Base de datos H2 en desarrollo y PostgreSQL en producción.
 Este backend reemplaza los datos simulados del frontend de AFC App (Expo/React Native, en `../AFC-APP`). Cubre, del
 cronograma (`Cronograma-backend-AFC-Gym.xlsx`): Infraestructura, Autenticación y acceso (HU-01 a HU-06), Gestión de
 socios (HU-07 a HU-12), Membresías y pagos (HU-13 a HU-19), Tienda e inventario (HU-20 a HU-25), Ventas / POS
-(HU-26 a HU-28), Caja y corte de caja (HU-29 a HU-31) y Horarios, clases y capacidad (HU-32 a HU-36) — ver
+(HU-26 a HU-28), Caja y corte de caja (HU-29 a HU-31), Horarios, clases y capacidad (HU-32 a HU-36), Rutinas y
+ejercicios (HU-37 a HU-40), Anuncios (HU-41 a HU-43), Dashboard (HU-44) y Notificaciones (HU-45 a HU-47) — ver
 `Historias-de-Usuario-AFC-Gym.docx`.
 
 ## Abrir y correr el proyecto en IntelliJ IDEA
@@ -48,7 +49,7 @@ Pasa cuando un antivirus o proxy inspecciona HTTPS. En IntelliJ:
 
 ### Pruebas
 
-Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 32 clases de prueba (248 pruebas) ya pasan en
+Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 43 clases de prueba (341 pruebas) ya pasan en
 este repositorio (`./mvnw test`, perfil `test`, H2 en memoria).
 
 ## Perfiles
@@ -69,6 +70,10 @@ Producción se activa con `SPRING_PROFILES_ACTIVE=prod` y estas variables de ent
 | `BOOTSTRAP_ADMIN_PASSWORD` | Contraseña del primer usuario administrador. Solo se usa si todavía no existe ningún usuario | Solo la primera vez |
 | `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_FULL_NAME`, `BOOTSTRAP_ADMIN_EMAIL` | Datos de ese primer usuario | No |
 | `ALLOWED_ORIGINS` | Direcciones del frontend permitidas por CORS, separadas por comas | Sí, con el frontend desplegado |
+| `VIDEOS_DIRECTORY` | Carpeta donde se guardan los videos subidos de los ejercicios (por defecto `./data/videos`). En producción tiene que ser un disco persistente | Sí, si se suben videos |
+| `EXPO_ACCESS_TOKEN` | Token de acceso de Expo, solo si en el proyecto de Expo se activó "Enhanced push security" | No |
+| `EXPIRY_REMINDER_DAYS_BEFORE` | Con cuántos días de anticipación se avisa que vence la membresía (por defecto 3, de 1 a 30) | No |
+| `EXPIRY_REMINDER_CRON` | A qué hora corre el recordatorio de vencimientos, en formato cron de Spring (por defecto `0 0 9 * * *`, todos los días a las 9:00 hora del servidor) | No |
 
 En producción Swagger y la documentación de la API quedan desactivados.
 
@@ -97,6 +102,13 @@ La API usa tokens JWT (válidos 1 hora). El token se envía en el encabezado `Au
 | `GET /v1/schedule-blocks/occupancy` | `ADMIN` y `SOCIO` |
 | `POST /v1/bookings`, `PATCH /v1/bookings/{id}/cancel` | `ADMIN` y `SOCIO` (el socio solo sobre sus propias reservas) |
 | `GET /v1/bookings/me` | Solo `SOCIO` |
+| `POST`/`GET /v1/routines`, `GET`/`PUT`/`DELETE /v1/routines/{id}`, `POST`/`DELETE /v1/routines/{id}/exercises/{exerciseId}/video` | Solo `ADMIN` |
+| `GET /v1/routines/by-day` | `ADMIN` y `SOCIO` |
+| `GET /v1/exercise-videos/{archivo}` | Cualquiera (es público, ver abajo) |
+| `POST`/`GET /v1/announcements`, `DELETE /v1/announcements/{id}` | Solo `ADMIN` |
+| `GET /v1/announcements/active`, `POST /v1/announcements/{id}/dismiss` | `ADMIN` y `SOCIO` |
+| `GET /v1/dashboard/summary` | Solo `ADMIN` |
+| `POST /v1/push-tokens` | Solo `SOCIO` |
 | `POST /v1/check-ins` | Solo `ADMIN` |
 
 Cada vez que se agregue un endpoint hay que decidir qué roles lo usan en `configuration/security/SecurityConfiguration`.
@@ -249,6 +261,125 @@ para saber dónde hay lugar.
   (otro socio recibe `403`) o un admin. No se puede cancelar una clase que ya empezó.
 - `GET /v1/bookings/me` le muestra al socio sus próximas reservas activas.
 
+### Rutinas y ejercicios
+
+**Alta (HU-37) y un solo set por día (HU-38)**: `POST /v1/routines`
+
+```json
+{
+  "dayOfWeek": "MONDAY",
+  "title": "Pierna",
+  "description": "Calentar 10 minutos",
+  "coachId": 1,
+  "exercises": [
+    { "name": "Sentadilla", "sets": 4, "reps": "10-12", "restSeconds": 90 },
+    { "name": "Peso muerto", "sets": 3, "reps": "Al fallo", "videoUrl": "https://youtu.be/abc" }
+  ]
+}
+```
+
+- El coach y al menos un ejercicio son obligatorios; máximo 8 ejercicios. Los ejercicios se guardan en el orden en que
+  se mandan. `reps` es texto libre (`"10-12"`, `"Al fallo"`), `restSeconds` es opcional.
+- Solo puede haber una rutina por día: si el día ya tiene una, responde `409` con
+  `"Ya hay una rutina para el lunes; edítala o elimínala primero"`. La base de datos también lo impide.
+- `PUT /v1/routines/{id}` reemplaza la rutina completa. Los ejercicios que se mandan **con su `id`** se conservan (y
+  conservan su video subido); los que vienen sin `id` se crean; los que no vienen se borran.
+- `DELETE /v1/routines/{id}` borra la rutina (y sus videos) y deja el día libre.
+
+**Video por ejercicio (HU-39)**: cada ejercicio tiene un video por URL **o** por archivo, nunca los dos.
+
+- Por URL: el campo `videoUrl` del ejercicio (tiene que empezar con `http://` o `https://`).
+- Por archivo: `POST /v1/routines/{id}/exercises/{exerciseId}/video`, formulario `multipart/form-data` con el campo
+  `file`. Acepta MP4, MOV o WEBM de hasta 100 MB. Subir un archivo quita la URL que hubiera, y viceversa.
+- `DELETE /v1/routines/{id}/exercises/{exerciseId}/video` le quita el video, sea URL o archivo.
+- En la respuesta, cada ejercicio trae `videoType` (`URL`, `FILE` o nada) y `videoUrl`, que ya es la dirección para
+  reproducirlo: la URL externa, o `/v1/exercise-videos/<archivo>` si es un archivo subido.
+- `GET /v1/exercise-videos/<archivo>` sirve el video con soporte de `Range` (lo que usan los reproductores para
+  adelantar). Es público a propósito: el reproductor de video del celular o del navegador no puede mandar el token, y el
+  nombre del archivo es aleatorio (32 caracteres), así que no se puede adivinar.
+
+**Rutina del día (HU-40)**: `GET /v1/routines/by-day` (hoy) o `?dayOfWeek=FRIDAY`. Trae coach, descripción y los
+ejercicios con series, repeticiones, descanso y video. Si ese día no tiene rutina responde `404` con
+`"No hay rutina asignada para el viernes"`.
+
+### Anuncios
+
+**Publicar (HU-41)**: `POST /v1/announcements`
+
+```json
+{
+  "title": "Clases suspendidas",
+  "message": "Las clases vespertinas se suspenden por mantenimiento.",
+  "type": "URGENT",
+  "startDate": "2026-11-24",
+  "endDate": "2026-11-26"
+}
+```
+
+- `title`, `message`, `type` y `startDate` son obligatorios. `type` puede ser `INFO`, `URGENT`, `PROMOTION` o
+  `MAINTENANCE`.
+- `endDate` es opcional: es el último día en que se muestra. Si no se manda, el anuncio sigue vigente hasta que un
+  admin lo borre. No se acepta una fecha final anterior a la inicial, ni una que ya pasó.
+- `GET /v1/announcements` le da al admin todos (pasados, vigentes y programados); `current` indica si hoy está vigente.
+  Se calcula al vuelo, no se guarda.
+
+**Ver los vigentes (HU-42)**: `GET /v1/announcements/active` trae solo los que aplican hoy: urgentes primero, luego
+mantenimiento, informativos y promociones, y dentro de cada tipo los más recientes.
+
+Para que un aviso cerrado no vuelva a salir en la misma sesión, la app llama a `POST /v1/announcements/{id}/dismiss`
+cuando el socio lo cierra. El cierre se guarda con el identificador del token: aunque cierre y abra la app no reaparece,
+y al iniciar sesión de nuevo vuelve a mostrarse si sigue vigente.
+
+**Eliminar (HU-43)**: `DELETE /v1/announcements/{id}`, solo admin. Se borra de verdad, junto con sus cierres, y deja de
+mostrarse a los socios de inmediato.
+
+### Dashboard (HU-44)
+
+`GET /v1/dashboard/summary` arma la vista general del admin. Todo sale de los datos reales en ese momento; nada se
+guarda ni está quemado:
+
+| Bloque | Qué trae |
+|---|---|
+| `members` | Socios `active`, `expired` y `toPurge` (con las mismas reglas que el estado de cada socio, sin contar los dados de baja) y `newThisMonth` (altas del mes) |
+| `income` | Ingresos del mes actual por membresías y por tienda, el total, el total del mes anterior y `changePercent` (cambio contra el mes anterior; vacío si el mes anterior fue 0) |
+| `monthlyIncome` | Los últimos 6 meses, del más viejo al actual, para la gráfica |
+| `storeSalesByCategory` | Ventas de tienda del mes por categoría de producto (monto y unidades), de mayor a menor. Los productos sin categoría salen como "Sin categoría" |
+| `alerts.expiringMemberships` | Socios cuya membresía vence entre hoy y los próximos días (3 por defecto; se cambia con `?expiringWithinDays=7`, de 1 a 30), con los días que les quedan |
+| `alerts.lowStockProducts` | Productos activos con `stock <= minStock`, los más escasos primero |
+
+Los ingresos se calculan con el mismo servicio que el corte de caja, así que el dashboard y el corte mensual siempre
+dan la misma cifra.
+
+### Notificaciones push (HU-45 a HU-47)
+
+Las notificaciones salen del servidor por la API de push de Expo (la que ya usa `notificationService.js` del
+frontend):
+
+| Pieza | Cómo funciona |
+|---|---|
+| Registrar el dispositivo (HU-45) | El socio, con su sesión iniciada, envía el `ExpoPushToken` de su teléfono a `POST /v1/push-tokens` (`{ "token": "ExponentPushToken[...]" }`). Puede registrar varios dispositivos. Volver a enviar el mismo token no lo duplica, y si otro socio inicia sesión en ese teléfono, el token pasa a ser suyo |
+| Recordatorio de vencimiento (HU-46) | Un proceso programado corre todos los días (`EXPIRY_REMINDER_CRON`) y avisa a los socios activos cuya membresía vence entre hoy y los próximos `EXPIRY_REMINDER_DAYS_BEFORE` días: "Tu membresía vence en 3 días (27/11/2026)". Se avisa una sola vez por cada fecha de vencimiento (tabla `expiry_reminder`) |
+| Cancelación si ya renovó (HU-46) | La decisión se toma al momento de enviar con la fecha de vencimiento actual: si el socio ya renovó, su fecha ya salió de la ventana y no recibe nada |
+| Aviso de renovación (HU-47) | En cuanto un pago queda aprobado (tarjeta al instante, o SPEI/efectivo cuando el admin lo aprueba) le llega "Pago confirmado. Tu membresía quedó renovada. Vence el ..." a todos sus dispositivos |
+
+Detalles:
+
+- El aviso de renovación se manda **después** de guardar el pago. Si Expo falla o tarda, el pago ya quedó registrado y
+  la respuesta al admin no cambia; el error solo se anota en el log.
+- Si Expo no acepta el recordatorio (sin internet, Expo caído), no se marca como enviado y se vuelve a intentar en la
+  siguiente corrida mientras siga dentro de la ventana.
+- Si Expo responde que un dispositivo ya no existe (`DeviceNotRegistered`, por ejemplo porque desinstalaron la app), su
+  token se borra solo.
+- Socios sin dispositivo registrado no reciben nada y no se marca recordatorio: si registran su teléfono después, aún
+  dentro de la ventana, les llega.
+- Cada mensaje trae en `data` el tipo (`EXPIRY_REMINDER` o `MEMBERSHIP_RENEWED`) y `dueDate`, para que la app sepa a qué
+  pantalla llevar al tocarlo.
+
+Para que el frontend lo use: después de `registerForPushNotificationsAsync()` en `MemberHomeScreen`, mandar el token
+que regresa a `POST /v1/push-tokens`, y quitar la notificación local de "¡Renovación Exitosa!" que hoy dispara el propio
+teléfono, porque el servidor ya manda la suya (si no, el socio recibiría dos). Las notificaciones push solo llegan a un
+teléfono real; en web no aplican.
+
 ### Probarlo desde Swagger (en desarrollo)
 
 1. Abre http://localhost:8091/swagger-ui.html.
@@ -298,6 +429,9 @@ Una migración ya aplicada nunca se edita: se crea una nueva (`V2__description.s
 | `V4__store.sql` | Tablas `category`, `supplier`, `product` e `inventory_movement` |
 | `V5__sales.sql` | Tablas `sale` (folio, total, método de pago, cajero) y `sale_item` (renglones del ticket) |
 | `V6__schedules.sql` | Tablas `coach`, `schedule_block` y `booking`, y la columna `member.user_id` que liga a un socio con su cuenta de acceso |
+| `V7__routines.sql` | Tablas `routine` (una por día de la semana) y `exercise` (con su URL o archivo de video, nunca ambos) |
+| `V8__announcements.sql` | Tablas `announcement` y `announcement_dismissal` (qué avisos cerró cada sesión) |
+| `V9__push_notifications.sql` | Tablas `push_token` (dispositivos de cada socio, un token no se repite) y `expiry_reminder` (qué recordatorio de vencimiento ya se envió, uno por socio y fecha) |
 
 El estado del socio (`ACTIVE`/`EXPIRED`/`TO_PURGE`) **no se guarda en la base de datos**: se calcula siempre al vuelo
 a partir de `due_date`, como pide Requerimientos-AFC-Gym.docx ("nunca se confía en un valor enviado por el cliente").
@@ -321,7 +455,12 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
 `POST /v1/coaches`, `GET /v1/coaches`, `POST /v1/schedule-blocks`, `GET /v1/schedule-blocks`,
 `GET /v1/schedule-blocks/occupancy`, `GET /v1/schedule-blocks/{id}`, `PUT /v1/schedule-blocks/{id}`,
 `PATCH /v1/schedule-blocks/{id}/activate`, `PATCH /v1/schedule-blocks/{id}/deactivate`, `POST /v1/bookings`,
-`GET /v1/bookings/me`, `PATCH /v1/bookings/{id}/cancel`, `POST /v1/check-ins`.
+`GET /v1/bookings/me`, `PATCH /v1/bookings/{id}/cancel`, `POST /v1/routines`, `GET /v1/routines`,
+`GET /v1/routines/by-day`, `GET /v1/routines/{id}`, `PUT /v1/routines/{id}`, `DELETE /v1/routines/{id}`,
+`POST /v1/routines/{id}/exercises/{exerciseId}/video`, `DELETE /v1/routines/{id}/exercises/{exerciseId}/video`,
+`GET /v1/exercise-videos/{archivo}`, `POST /v1/announcements`, `GET /v1/announcements`,
+`GET /v1/announcements/active`, `POST /v1/announcements/{id}/dismiss`, `DELETE /v1/announcements/{id}`,
+`GET /v1/dashboard/summary`, `POST /v1/push-tokens`, `POST /v1/check-ins`.
 
 ## Decisiones tomadas para poder construir esto ya (a confirmar con el negocio)
 
@@ -360,3 +499,32 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
   horario.
 - Para reservar se exige que la membresía esté vigente; no hay límite de con cuánta anticipación se puede reservar
   (si el negocio quiere, por ejemplo, "máximo 7 días antes", es un cambio chico).
+- **Dónde se guardan los videos:** el HU-39 deja el almacenamiento "por decidir" (S3, Cloudinary, Supabase). Por
+  ahora se guardan en una carpeta del servidor (`VIDEOS_DIRECTORY`). Funciona en desarrollo y en un servidor con disco
+  propio; en un hosting sin disco persistente (muchos planes gratuitos) los videos se perderían al reiniciar. Cambiar a
+  S3/Cloudinary solo toca `LocalVideoStorageServiceImpl` (todo lo demás usa la interfaz `IVideoStorageService`).
+- Las rutinas son por día de la semana y las ven todos los socios; no se asignan a socios específicos (el HU-40 pide
+  "la rutina correspondiente al día", no una rutina personal).
+- Cuando un día no tiene rutina, el endpoint responde `404` con el mensaje en lugar de una respuesta vacía, para que el
+  frontend pueda mostrar ese texto tal cual.
+- El frontend usa dos juegos de tipos de anuncio (`info`/`urgent`/`maintenance` en admin y `alert`/`promo` en el socio).
+  Se unificaron en `INFO`, `URGENT`, `MAINTENANCE` y `PROMOTION`; lo que hoy es `alert` corresponde a `URGENT`.
+- El HU-41 pide "una fecha", pero para saber qué está vigente (HU-42) hace falta un rango: `startDate` obligatoria y
+  `endDate` opcional. Sin fecha final el anuncio se queda hasta que lo borren, como sugiere el HU-43.
+- Los cierres de avisos no tienen limpieza automática (igual que `jwt_blocklist`); se borran al eliminar su anuncio.
+- El dashboard del frontend muestra tendencias de socios ("+5 este mes"). Saber cuántos socios estaban activos en una
+  fecha pasada requeriría guardar historial de estados, que hoy no existe (el estado se calcula con la fecha de
+  vencimiento). Por eso el resumen trae `newThisMonth` (altas del mes) en lugar de esa tendencia; la tendencia de
+  ingresos (`changePercent`) sí es real.
+- Las ventas por categoría usan la categoría actual del producto: si un producto cambia de categoría, sus ventas del mes
+  se cuentan en la nueva.
+- Los días de anticipación del recordatorio son configuración del servidor (`EXPIRY_REMINDER_DAYS_BEFORE`), no una
+  pantalla del admin. Si el negocio quiere cambiarlo desde la app, es una pieza chica (guardar el valor en la base).
+- No hay endpoint para dar de baja un dispositivo al cerrar sesión. Si otro socio inicia sesión en el mismo teléfono, el
+  token pasa a ser suyo; si nadie vuelve a entrar, el teléfono sigue recibiendo los avisos del socio anterior hasta
+  que desinstalen la app. Se puede agregar `DELETE` si el negocio lo pide.
+- No se guarda un historial de notificaciones enviadas (bandeja "mis notificaciones"); solo lo necesario para no repetir
+  recordatorios. El frontend no tiene esa pantalla.
+- El proceso programado vive dentro de la misma aplicación. Si en producción se levantan varias copias del backend, cada
+  una correría el recordatorio; la restricción única de `expiry_reminder` evita guardar dos veces, pero Expo podría
+  recibir el mismo aviso dos veces en la misma corrida. Con una sola instancia (lo normal para un gimnasio) no pasa.

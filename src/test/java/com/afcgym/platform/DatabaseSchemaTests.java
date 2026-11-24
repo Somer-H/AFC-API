@@ -20,7 +20,8 @@ class DatabaseSchemaTests {
     private static final List<String> EXPECTED_TABLES = List.of(
             "app_user", "member", "password_reset_token", "check_in", "jwt_blocklist", "payment",
             "category", "supplier", "product", "inventory_movement", "sale", "sale_item",
-            "coach", "schedule_block", "booking");
+            "coach", "schedule_block", "booking", "routine", "exercise", "announcement",
+            "announcement_dismissal", "push_token", "expiry_reminder");
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -158,6 +159,76 @@ class DatabaseSchemaTests {
         jdbc.update("UPDATE member SET user_id = ? WHERE id = ?", userId, first);
         assertThrows(DataIntegrityViolationException.class,
                 () -> jdbc.update("UPDATE member SET user_id = ? WHERE id = ?", userId, second));
+    }
+
+    @Test
+    void givenTwoRoutinesForTheSameDay_whenInserting_thenThrowDataIntegrityViolationException() {
+        long coachId = insertCoach();
+        jdbc.update("INSERT INTO routine (day_of_week, title, coach_id) VALUES ('MONDAY', 'Pierna', ?)", coachId);
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO routine (day_of_week, title, coach_id) VALUES ('MONDAY', 'Brazo', ?)", coachId));
+    }
+
+    @Test
+    void givenAnExerciseWithUrlAndFile_whenInserting_thenThrowDataIntegrityViolationException() {
+        long coachId = insertCoach();
+        jdbc.update("INSERT INTO routine (day_of_week, title, coach_id) VALUES ('FRIDAY', 'Pierna', ?)", coachId);
+        long routineId = jdbc.queryForObject("SELECT id FROM routine WHERE day_of_week = 'FRIDAY'", Long.class);
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO exercise (routine_id, sort_order, name, sets, reps, video_url, video_file) "
+                        + "VALUES (?, 0, 'Sentadilla', 4, '10', 'https://youtu.be/a', 'abc.mp4')",
+                routineId));
+    }
+
+    @Test
+    void givenAnInvalidType_whenInsertingAnAnnouncement_thenThrowDataIntegrityViolationException() {
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO announcement (title, message, type, start_date) "
+                        + "VALUES ('Aviso', 'Mensaje', 'ALERT', CURRENT_DATE)"));
+    }
+
+    @Test
+    void givenAnEndBeforeTheStart_whenInsertingAnAnnouncement_thenThrowDataIntegrityViolationException() {
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO announcement (title, message, type, start_date, end_date) "
+                        + "VALUES ('Aviso', 'Mensaje', 'INFO', DATE '2026-11-20', DATE '2026-11-19')"));
+    }
+
+    @Test
+    void givenADismissedAnnouncement_whenDeletingIt_thenItsDismissalsAreDeletedToo() {
+        jdbc.update("INSERT INTO announcement (title, message, type, start_date) "
+                + "VALUES ('Cascada', 'Mensaje', 'INFO', CURRENT_DATE)");
+        long announcementId = jdbc.queryForObject("SELECT id FROM announcement WHERE title = 'Cascada'", Long.class);
+        jdbc.update("INSERT INTO announcement_dismissal (announcement_id, token_id) VALUES (?, 'session-1')",
+                announcementId);
+
+        jdbc.update("DELETE FROM announcement WHERE id = ?", announcementId);
+
+        Integer remaining = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM announcement_dismissal WHERE announcement_id = ?", Integer.class, announcementId);
+        assertTrue(remaining == 0);
+    }
+
+    @Test
+    void givenATokenAlreadyRegistered_whenInsertingItAgain_thenThrowDataIntegrityViolationException() {
+        long firstMember = insertMember("Ana Push");
+        long secondMember = insertMember("Luis Push");
+        jdbc.update("INSERT INTO push_token (member_id, token) VALUES (?, 'ExponentPushToken[same]')", firstMember);
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO push_token (member_id, token) VALUES (?, 'ExponentPushToken[same]')", secondMember));
+    }
+
+    @Test
+    void givenAReminderAlreadySent_whenInsertingTheSameDueDateAgain_thenThrowDataIntegrityViolationException() {
+        long memberId = insertMember("Ana Recordatorio");
+        jdbc.update("INSERT INTO expiry_reminder (member_id, due_date) VALUES (?, CURRENT_DATE)", memberId);
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO expiry_reminder (member_id, due_date) VALUES (?, CURRENT_DATE)", memberId));
+    }
+
+    private long insertCoach() {
+        jdbc.update("INSERT INTO coach (name) VALUES ('Coach Schema')");
+        return jdbc.queryForObject("SELECT MAX(id) FROM coach", Long.class);
     }
 
     private long insertMember(String fullName) {
