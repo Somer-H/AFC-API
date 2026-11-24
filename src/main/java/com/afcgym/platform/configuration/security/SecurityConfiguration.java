@@ -140,6 +140,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/v1/announcements/*/dismiss").hasAnyRole(Role.ADMIN.name(), Role.SOCIO.name())
                         .requestMatchers(HttpMethod.DELETE, "/v1/announcements/*").hasRole(Role.ADMIN.name())
                         .requestMatchers(HttpMethod.GET, "/v1/dashboard/summary").hasRole(Role.ADMIN.name())
+                        .requestMatchers(HttpMethod.GET, "/v1/audit-logs").hasRole(Role.ADMIN.name())
                         .requestMatchers(HttpMethod.POST, "/v1/push-tokens").hasRole(Role.SOCIO.name())
                         .requestMatchers(HttpMethod.POST, "/v1/check-ins").hasRole(Role.ADMIN.name())
                         .anyRequest().authenticated())

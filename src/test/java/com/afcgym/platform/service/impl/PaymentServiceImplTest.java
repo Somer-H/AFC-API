@@ -16,6 +16,7 @@ import com.afcgym.platform.exception.BadRequestException;
 import com.afcgym.platform.exception.ConflictException;
 import com.afcgym.platform.exception.ForbiddenException;
 import com.afcgym.platform.exception.NotFoundException;
+import com.afcgym.platform.exception.OwnershipViolationException;
 import com.afcgym.platform.exception.ServiceUnavailableException;
 import com.afcgym.platform.exception.UnauthorizedException;
 import com.afcgym.platform.persistance.entities.CheckInEntity;
@@ -23,6 +24,7 @@ import com.afcgym.platform.persistance.entities.MemberEntity;
 import com.afcgym.platform.persistance.entities.PaymentAppointmentEntity;
 import com.afcgym.platform.persistance.entities.PaymentEntity;
 import com.afcgym.platform.persistance.entities.enums.AppointmentStatus;
+import com.afcgym.platform.persistance.entities.enums.AuditOutcome;
 import com.afcgym.platform.persistance.entities.enums.CheckInMethod;
 import com.afcgym.platform.persistance.entities.enums.MembershipType;
 import com.afcgym.platform.persistance.entities.enums.PaymentMethod;
@@ -32,8 +34,10 @@ import com.afcgym.platform.persistance.repositories.ICheckInRepository;
 import com.afcgym.platform.persistance.repositories.IMemberRepository;
 import com.afcgym.platform.persistance.repositories.IPaymentAppointmentRepository;
 import com.afcgym.platform.persistance.repositories.IPaymentRepository;
+import com.afcgym.platform.service.IAuditService;
 import com.afcgym.platform.service.IMemberService;
 import com.afcgym.platform.service.IPaymentGatewayService;
+import com.afcgym.platform.service.dto.AuditEntry;
 import com.afcgym.platform.service.dto.GatewayCheckout;
 import com.afcgym.platform.service.dto.GatewayNotification;
 import com.afcgym.platform.service.dto.GatewayPayment;
@@ -85,6 +89,9 @@ class PaymentServiceImplTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private IAuditService auditService;
+
     private PaymentServiceImpl paymentService;
 
     private MemberEntity existingMember;
@@ -99,7 +106,7 @@ class PaymentServiceImplTest {
                 new PaymentProperties.BankTransfer("Banco de pruebas", "AFC Gym", "012345678901234567"),
                 new PaymentProperties.MercadoPago("https://mp.test", "TEST-token", "secret", null, null));
         paymentService = new PaymentServiceImpl(paymentRepository, appointmentRepository, checkInRepository,
-                memberRepository, memberService, paymentGatewayService, paymentProperties, eventPublisher);
+                memberRepository, memberService, paymentGatewayService, paymentProperties, eventPublisher, auditService);
         existingMember = MemberEntity.builder()
                 .id(1L)
                 .code("SOC-000001")
@@ -373,7 +380,10 @@ class PaymentServiceImplTest {
                 .build();
         when(paymentRepository.findById(20L)).thenReturn(Optional.of(otherMembersPayment));
 
-        assertThrows(NotFoundException.class, () -> paymentService.getForMember(20L, socio));
+        OwnershipViolationException exception = assertThrows(OwnershipViolationException.class,
+                () -> paymentService.getForMember(20L, socio));
+
+        assertEquals("No se encontró el pago solicitado", exception.getMessage());
     }
 
     @Test
@@ -457,6 +467,8 @@ class PaymentServiceImplTest {
 
         verify(memberService).renew(1L, MembershipType.MONTHLY);
         verify(eventPublisher).publishEvent(new MembershipRenewedEvent(1L));
+        verify(auditService).record(new AuditEntry(null, null, "MercadoPago.paymentApproved", "POST",
+                "/v1/payment-webhooks/mercado-pago", "7", AuditOutcome.SUCCESS, 200));
         assertEquals(PaymentStatus.APPROVED, cardPayment.getStatus());
         assertEquals("123456", cardPayment.getGatewayPaymentId());
     }

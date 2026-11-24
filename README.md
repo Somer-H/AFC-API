@@ -8,7 +8,8 @@ Este backend reemplaza los datos simulados del frontend de AFC App (Expo/React N
 cronograma (`Cronograma-backend-AFC-Gym.xlsx`): Infraestructura, Autenticación y acceso (HU-01 a HU-06), Gestión de
 socios (HU-07 a HU-12), Membresías y pagos (HU-13 a HU-19), Tienda e inventario (HU-20 a HU-25), Ventas / POS
 (HU-26 a HU-28), Caja y corte de caja (HU-29 a HU-31), Horarios, clases y capacidad (HU-32 a HU-36), Rutinas y
-ejercicios (HU-37 a HU-40), Anuncios (HU-41 a HU-43), Dashboard (HU-44), Notificaciones (HU-45 a HU-47) y los flujos de pago del socio (tarjeta con Mercado Pago,
+ejercicios (HU-37 a HU-40), Anuncios (HU-41 a HU-43), Dashboard (HU-44), Notificaciones (HU-45 a HU-47), Funciones transversales (HU-48 a HU-51) y los flujos de pago
+del socio (tarjeta con Mercado Pago,
 transferencia y efectivo con cita, según el documento de alcance de pagos) — ver
 `Historias-de-Usuario-AFC-Gym.docx`.
 
@@ -50,7 +51,7 @@ Pasa cuando un antivirus o proxy inspecciona HTTPS. En IntelliJ:
 
 ### Pruebas
 
-Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 48 clases de prueba (402 pruebas) ya pasan en
+Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 53 clases de prueba (427 pruebas) ya pasan en
 este repositorio (`./mvnw test`, perfil `test`, H2 en memoria).
 
 ## Perfiles
@@ -120,9 +121,53 @@ La API usa tokens JWT (válidos 1 hora). El token se envía en el encabezado `Au
 | `POST /v1/payments/me`, `GET /v1/payments/me`, `GET /v1/payments/me/{id}`, `PATCH /v1/payments/me/{id}/cancel`, `PATCH /v1/payments/me/{id}/appointment` | Solo `SOCIO` (cada socio solo ve y toca sus propios pagos) |
 | `PATCH /v1/payments/{id}/reject`, `GET /v1/payment-appointments`, `PATCH /v1/payment-appointments/{id}/accept`, `PATCH /v1/payment-appointments/{id}/cancel` | Solo `ADMIN` |
 | `POST /v1/payment-webhooks/mercado-pago` | Público, pero solo se procesa si trae la firma válida de Mercado Pago |
+| `GET /v1/audit-logs` | Solo `ADMIN` (solo lectura: no existe forma de editar ni borrar registros) |
 | `POST /v1/check-ins` | Solo `ADMIN` |
 
 Cada vez que se agregue un endpoint hay que decidir qué roles lo usan en `configuration/security/SecurityConfiguration`.
+
+### Errores y validaciones (HU-48 y HU-49)
+
+Toda respuesta de error tiene el mismo formato, con el mensaje en español y sin datos técnicos:
+
+```json
+{ "status": 400, "message": "Faltan campos obligatorios: fullName, membershipType",
+  "fields": { "fullName": "es obligatorio", "membershipType": "es obligatorio" } }
+```
+
+| Caso | Respuesta |
+|---|---|
+| Campos obligatorios vacíos | `400` "Faltan campos obligatorios: ..." y `fields` con cada campo |
+| Campo con formato incorrecto (correo, patrón, longitud, rango) | `400` "Revisa estos campos: email (no es un correo válido)" |
+| Valor de opción inexistente | `400` "El valor 'DAILY' no es válido para membershipType. Valores permitidos: WEEKLY, ..." |
+| JSON mal formado | `400` "El cuerpo de la petición no es un JSON válido" |
+| Parámetro con tipo incorrecto o faltante | `400` "El parámetro id no tiene un formato válido" / "Falta el parámetro obligatorio period" |
+| Ruta inexistente, método no permitido, contenido que no es JSON | `404`, `405` y `415` con su mensaje |
+| Error inesperado del servidor | `500` "Ocurrió un error inesperado. Intenta de nuevo más tarde" (el detalle solo queda en el log del servidor) |
+
+`fields` solo aparece cuando el error es de un campo concreto. Las operaciones exitosas responden con el registro
+guardado (`200`/`201`) o `204` cuando no hay nada que devolver; el frontend muestra su propio mensaje de confirmación.
+
+### Auditoría (HU-50 y HU-51)
+
+La tabla `audit_log` guarda, sin que cada pantalla tenga que hacer nada:
+
+- **Cada cambio que hace un admin** (cualquier `POST`, `PUT`, `PATCH` o `DELETE` exitoso: altas, ediciones, bajas,
+  aprobación y rechazo de pagos, citas, inventario, rutinas, anuncios...).
+- **Cada pago aprobado por Mercado Pago** (actor vacío, acción `MercadoPago.paymentApproved`).
+- **Cada intento no autorizado**: un rol que no tiene permiso (`403`) o un socio que intenta ver o modificar un pago de
+  otro socio (responde `404` para no revelar que existe, pero queda registrado como `DENIED`).
+
+Cada registro dice **quién** (`actorUserId`, `actorRole`), **cuándo** (`occurredAt`) y **qué** (`action` como
+`Payments.approve`, método, ruta, `targetId` del registro afectado o creado, `outcome` `SUCCESS`/`DENIED` y el código
+de respuesta). Nunca se guarda el cuerpo de la petición (podría traer contraseñas o PIN).
+
+El admin lo consulta con `GET /v1/audit-logs?actorUserId=&action=&outcome=&from=2026-11-01&to=2026-11-30&page=0&size=50`
+(más reciente primero, máximo 100 por página). La aplicación no tiene ninguna forma de editar ni borrar registros: la
+entidad no tiene setters, el repositorio solo permite guardar y consultar, y no hay endpoints `PUT`/`DELETE`.
+
+Los datos sensibles (pagos, contacto) ya estaban restringidos por rol: un socio solo ve sus propias reservas y pagos,
+y todo lo de socios, pagos de recepción, corte de caja, dashboard y auditoría es solo `ADMIN`.
 
 ### Cerrar sesión con JWT sin estado
 
@@ -529,6 +574,7 @@ Una migración ya aplicada nunca se edita: se crea una nueva (`V2__description.s
 | `V6__schedules.sql` | Tablas `coach`, `schedule_block` y `booking`, y la columna `member.user_id` que liga a un socio con su cuenta de acceso |
 | `V7__routines.sql` | Tablas `routine` (una por día de la semana) y `exercise` (con su URL o archivo de video, nunca ambos) |
 | `V8__announcements.sql` | Tablas `announcement` y `announcement_dismissal` (qué avisos cerró cada sesión) |
+| `V11__audit_log.sql` | Tabla `audit_log` (historial de cambios del admin e intentos no autorizados) |
 | `V10__payment_flows.sql` | Nuevos estados de `payment`, quién aprobó o rechazó, motivo de rechazo, datos de Mercado Pago (preferencia, id del cobro, liga de pago) y la tabla `payment_appointment` (citas para pagar en efectivo) |
 | `V9__push_notifications.sql` | Tablas `push_token` (dispositivos de cada socio, un token no se repite) y `expiry_reminder` (qué recordatorio de vencimiento ya se envió, uno por socio y fecha) |
 
@@ -562,7 +608,8 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
 `GET /v1/dashboard/summary`, `POST /v1/push-tokens`, `POST /v1/payments/me`, `GET /v1/payments/me`,
 `GET /v1/payments/me/{id}`, `PATCH /v1/payments/me/{id}/cancel`, `PATCH /v1/payments/me/{id}/appointment`,
 `PATCH /v1/payments/{id}/reject`, `GET /v1/payment-appointments`, `PATCH /v1/payment-appointments/{id}/accept`,
-`PATCH /v1/payment-appointments/{id}/cancel`, `POST /v1/payment-webhooks/mercado-pago`, `POST /v1/check-ins`.
+`PATCH /v1/payment-appointments/{id}/cancel`, `POST /v1/payment-webhooks/mercado-pago`, `GET /v1/audit-logs`,
+`POST /v1/check-ins`.
 
 ## Decisiones tomadas para poder construir esto ya (a confirmar con el negocio)
 
@@ -642,3 +689,12 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
   define). Ambos se pueden ajustar.
 - El pago en efectivo registrado desde recepción (`POST /v1/members/{id}/payments`) sigue igual: queda `PENDING` y no
   usa citas.
+- La auditoría registra los cambios **exitosos** del admin; un intento del admin que falla por validación (`400`) no se
+  guarda porque no cambió nada. Las peticiones sin token (`401`) tampoco se guardan, para no llenar la tabla con
+  tráfico anónimo.
+- El registro de auditoría se escribe al terminar cada petición, en su propia transacción. Si la base de datos fallara
+  justo en ese instante, el cambio quedaría hecho sin su registro (y el error queda en el log del servidor). Para un
+  historial a prueba de todo, en producción se puede además quitarle al usuario de la base de datos el permiso de
+  `UPDATE`/`DELETE` sobre `audit_log`.
+- `action` se forma con el nombre del controlador y del método (`Members.deactivate`, `Payments.reject`), así que una
+  pantalla de auditoría en el frontend puede traducirlo con una tabla.

@@ -5,6 +5,7 @@ import com.afcgym.platform.exception.BadRequestException;
 import com.afcgym.platform.exception.ConflictException;
 import com.afcgym.platform.exception.ForbiddenException;
 import com.afcgym.platform.exception.NotFoundException;
+import com.afcgym.platform.exception.OwnershipViolationException;
 import com.afcgym.platform.exception.ServiceUnavailableException;
 import com.afcgym.platform.exception.UnauthorizedException;
 import com.afcgym.platform.persistance.entities.CheckInEntity;
@@ -12,6 +13,7 @@ import com.afcgym.platform.persistance.entities.MemberEntity;
 import com.afcgym.platform.persistance.entities.PaymentAppointmentEntity;
 import com.afcgym.platform.persistance.entities.PaymentEntity;
 import com.afcgym.platform.persistance.entities.enums.AppointmentStatus;
+import com.afcgym.platform.persistance.entities.enums.AuditOutcome;
 import com.afcgym.platform.persistance.entities.enums.MembershipType;
 import com.afcgym.platform.persistance.entities.enums.PaymentMethod;
 import com.afcgym.platform.persistance.entities.enums.PaymentStatus;
@@ -19,9 +21,11 @@ import com.afcgym.platform.persistance.repositories.ICheckInRepository;
 import com.afcgym.platform.persistance.repositories.IMemberRepository;
 import com.afcgym.platform.persistance.repositories.IPaymentAppointmentRepository;
 import com.afcgym.platform.persistance.repositories.IPaymentRepository;
+import com.afcgym.platform.service.IAuditService;
 import com.afcgym.platform.service.IMemberService;
 import com.afcgym.platform.service.IPaymentGatewayService;
 import com.afcgym.platform.service.IPaymentService;
+import com.afcgym.platform.service.dto.AuditEntry;
 import com.afcgym.platform.service.dto.BankTransferDetails;
 import com.afcgym.platform.service.dto.GatewayCheckout;
 import com.afcgym.platform.service.dto.GatewayNotification;
@@ -66,6 +70,9 @@ public class PaymentServiceImpl implements IPaymentService {
     private static final String CURRENCY = "MXN";
     private static final String CANCELLED_BY_MEMBER = "Cancelada por el socio";
     private static final String RESCHEDULED_BY_MEMBER = "Reagendada por el socio";
+    private static final String PAYMENT_NOT_FOUND = "No se encontró el pago solicitado";
+    private static final String GATEWAY_APPROVAL_ACTION = "MercadoPago.paymentApproved";
+    private static final String GATEWAY_WEBHOOK_PATH = "/v1/payment-webhooks/mercado-pago";
     private static final List<AppointmentStatus> ACTIVE_APPOINTMENT_STATUSES =
             List.of(AppointmentStatus.PENDING, AppointmentStatus.ACCEPTED);
 
@@ -77,6 +84,7 @@ public class PaymentServiceImpl implements IPaymentService {
     private final IPaymentGatewayService paymentGatewayService;
     private final PaymentProperties paymentProperties;
     private final ApplicationEventPublisher eventPublisher;
+    private final IAuditService auditService;
 
     @Override
     @Transactional
@@ -195,8 +203,8 @@ public class PaymentServiceImpl implements IPaymentService {
     public MemberPaymentView getForMember(Long paymentId, Requester requester) {
         MemberEntity member = memberOf(requester);
         PaymentEntity payment = paymentRepository.findById(paymentId)
-                .filter(found -> found.getMemberId().equals(member.getId()))
-                .orElseThrow(() -> new NotFoundException("No se encontró el pago solicitado"));
+                .orElseThrow(() -> new NotFoundException(PAYMENT_NOT_FOUND));
+        ensureOwnedBy(payment, member);
         return view(payment, latestAppointments(List.of(paymentId)).get(paymentId));
     }
 
@@ -257,6 +265,8 @@ public class PaymentServiceImpl implements IPaymentService {
             }
             payment.approveFromGateway(Instant.now(), gatewayPayment.id());
             renewMembership(payment);
+            auditService.record(new AuditEntry(null, null, GATEWAY_APPROVAL_ACTION, "POST", GATEWAY_WEBHOOK_PATH,
+                    String.valueOf(payment.getId()), AuditOutcome.SUCCESS, 200));
             return;
         }
         if (GATEWAY_FAILED.contains(gatewayPayment.status()) && payment.getStatus() == PaymentStatus.AWAITING_GATEWAY) {
@@ -332,13 +342,19 @@ public class PaymentServiceImpl implements IPaymentService {
 
     private PaymentEntity lockPayment(Long paymentId) {
         return paymentRepository.findWithLockById(paymentId)
-                .orElseThrow(() -> new NotFoundException("No se encontró el pago solicitado"));
+                .orElseThrow(() -> new NotFoundException(PAYMENT_NOT_FOUND));
     }
 
     private PaymentEntity lockOwnPayment(Long paymentId, MemberEntity member) {
-        return paymentRepository.findWithLockById(paymentId)
-                .filter(payment -> payment.getMemberId().equals(member.getId()))
-                .orElseThrow(() -> new NotFoundException("No se encontró el pago solicitado"));
+        PaymentEntity payment = lockPayment(paymentId);
+        ensureOwnedBy(payment, member);
+        return payment;
+    }
+
+    private void ensureOwnedBy(PaymentEntity payment, MemberEntity member) {
+        if (!payment.getMemberId().equals(member.getId())) {
+            throw new OwnershipViolationException(PAYMENT_NOT_FOUND);
+        }
     }
 
     private PaymentAppointmentEntity newAppointment(PaymentEntity payment, LocalDateTime scheduledAt) {
