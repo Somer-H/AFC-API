@@ -41,3 +41,8 @@ app:
     password: ${BOOTSTRAP_ADMIN_PASSWORD:}
   storage:
     videos-directory: ${VIDEOS_DIRECTORY:./data/videos}
+  notifications:
+    expo-push-url: ${EXPO_PUSH_URL:https://exp.host/--/api/v2/push/send}
+    expo-access-token: ${EXPO_ACCESS_TOKEN:}
+    expiry-reminder-days-before: ${EXPIRY_REMINDER_DAYS_BEFORE:3}
+    expiry-reminder-cron: ${EXPIRY_REMINDER_CRON:0 0 9 * * *}

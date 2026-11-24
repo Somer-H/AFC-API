@@ -21,7 +21,7 @@ class DatabaseSchemaTests {
             "app_user", "member", "password_reset_token", "check_in", "jwt_blocklist", "payment",
             "category", "supplier", "product", "inventory_movement", "sale", "sale_item",
             "coach", "schedule_block", "booking", "routine", "exercise", "announcement",
-            "announcement_dismissal");
+            "announcement_dismissal", "push_token", "expiry_reminder");
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -207,6 +207,23 @@ class DatabaseSchemaTests {
         Integer remaining = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM announcement_dismissal WHERE announcement_id = ?", Integer.class, announcementId);
         assertTrue(remaining == 0);
+    }
+
+    @Test
+    void givenATokenAlreadyRegistered_whenInsertingItAgain_thenThrowDataIntegrityViolationException() {
+        long firstMember = insertMember("Ana Push");
+        long secondMember = insertMember("Luis Push");
+        jdbc.update("INSERT INTO push_token (member_id, token) VALUES (?, 'ExponentPushToken[same]')", firstMember);
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO push_token (member_id, token) VALUES (?, 'ExponentPushToken[same]')", secondMember));
+    }
+
+    @Test
+    void givenAReminderAlreadySent_whenInsertingTheSameDueDateAgain_thenThrowDataIntegrityViolationException() {
+        long memberId = insertMember("Ana Recordatorio");
+        jdbc.update("INSERT INTO expiry_reminder (member_id, due_date) VALUES (?, CURRENT_DATE)", memberId);
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO expiry_reminder (member_id, due_date) VALUES (?, CURRENT_DATE)", memberId));
     }
 
     private long insertCoach() {

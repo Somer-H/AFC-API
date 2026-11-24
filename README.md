@@ -8,7 +8,7 @@ Este backend reemplaza los datos simulados del frontend de AFC App (Expo/React N
 cronograma (`Cronograma-backend-AFC-Gym.xlsx`): Infraestructura, Autenticación y acceso (HU-01 a HU-06), Gestión de
 socios (HU-07 a HU-12), Membresías y pagos (HU-13 a HU-19), Tienda e inventario (HU-20 a HU-25), Ventas / POS
 (HU-26 a HU-28), Caja y corte de caja (HU-29 a HU-31), Horarios, clases y capacidad (HU-32 a HU-36), Rutinas y
-ejercicios (HU-37 a HU-40), Anuncios (HU-41 a HU-43) y Dashboard (HU-44) — ver
+ejercicios (HU-37 a HU-40), Anuncios (HU-41 a HU-43), Dashboard (HU-44) y Notificaciones (HU-45 a HU-47) — ver
 `Historias-de-Usuario-AFC-Gym.docx`.
 
 ## Abrir y correr el proyecto en IntelliJ IDEA
@@ -49,7 +49,7 @@ Pasa cuando un antivirus o proxy inspecciona HTTPS. En IntelliJ:
 
 ### Pruebas
 
-Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 39 clases de prueba (315 pruebas) ya pasan en
+Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 43 clases de prueba (341 pruebas) ya pasan en
 este repositorio (`./mvnw test`, perfil `test`, H2 en memoria).
 
 ## Perfiles
@@ -71,6 +71,9 @@ Producción se activa con `SPRING_PROFILES_ACTIVE=prod` y estas variables de ent
 | `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_FULL_NAME`, `BOOTSTRAP_ADMIN_EMAIL` | Datos de ese primer usuario | No |
 | `ALLOWED_ORIGINS` | Direcciones del frontend permitidas por CORS, separadas por comas | Sí, con el frontend desplegado |
 | `VIDEOS_DIRECTORY` | Carpeta donde se guardan los videos subidos de los ejercicios (por defecto `./data/videos`). En producción tiene que ser un disco persistente | Sí, si se suben videos |
+| `EXPO_ACCESS_TOKEN` | Token de acceso de Expo, solo si en el proyecto de Expo se activó "Enhanced push security" | No |
+| `EXPIRY_REMINDER_DAYS_BEFORE` | Con cuántos días de anticipación se avisa que vence la membresía (por defecto 3, de 1 a 30) | No |
+| `EXPIRY_REMINDER_CRON` | A qué hora corre el recordatorio de vencimientos, en formato cron de Spring (por defecto `0 0 9 * * *`, todos los días a las 9:00 hora del servidor) | No |
 
 En producción Swagger y la documentación de la API quedan desactivados.
 
@@ -105,6 +108,7 @@ La API usa tokens JWT (válidos 1 hora). El token se envía en el encabezado `Au
 | `POST`/`GET /v1/announcements`, `DELETE /v1/announcements/{id}` | Solo `ADMIN` |
 | `GET /v1/announcements/active`, `POST /v1/announcements/{id}/dismiss` | `ADMIN` y `SOCIO` |
 | `GET /v1/dashboard/summary` | Solo `ADMIN` |
+| `POST /v1/push-tokens` | Solo `SOCIO` |
 | `POST /v1/check-ins` | Solo `ADMIN` |
 
 Cada vez que se agregue un endpoint hay que decidir qué roles lo usan en `configuration/security/SecurityConfiguration`.
@@ -346,6 +350,36 @@ guarda ni está quemado:
 Los ingresos se calculan con el mismo servicio que el corte de caja, así que el dashboard y el corte mensual siempre
 dan la misma cifra.
 
+### Notificaciones push (HU-45 a HU-47)
+
+Las notificaciones salen del servidor por la API de push de Expo (la que ya usa `notificationService.js` del
+frontend):
+
+| Pieza | Cómo funciona |
+|---|---|
+| Registrar el dispositivo (HU-45) | El socio, con su sesión iniciada, envía el `ExpoPushToken` de su teléfono a `POST /v1/push-tokens` (`{ "token": "ExponentPushToken[...]" }`). Puede registrar varios dispositivos. Volver a enviar el mismo token no lo duplica, y si otro socio inicia sesión en ese teléfono, el token pasa a ser suyo |
+| Recordatorio de vencimiento (HU-46) | Un proceso programado corre todos los días (`EXPIRY_REMINDER_CRON`) y avisa a los socios activos cuya membresía vence entre hoy y los próximos `EXPIRY_REMINDER_DAYS_BEFORE` días: "Tu membresía vence en 3 días (27/11/2026)". Se avisa una sola vez por cada fecha de vencimiento (tabla `expiry_reminder`) |
+| Cancelación si ya renovó (HU-46) | La decisión se toma al momento de enviar con la fecha de vencimiento actual: si el socio ya renovó, su fecha ya salió de la ventana y no recibe nada |
+| Aviso de renovación (HU-47) | En cuanto un pago queda aprobado (tarjeta al instante, o SPEI/efectivo cuando el admin lo aprueba) le llega "Pago confirmado. Tu membresía quedó renovada. Vence el ..." a todos sus dispositivos |
+
+Detalles:
+
+- El aviso de renovación se manda **después** de guardar el pago. Si Expo falla o tarda, el pago ya quedó registrado y
+  la respuesta al admin no cambia; el error solo se anota en el log.
+- Si Expo no acepta el recordatorio (sin internet, Expo caído), no se marca como enviado y se vuelve a intentar en la
+  siguiente corrida mientras siga dentro de la ventana.
+- Si Expo responde que un dispositivo ya no existe (`DeviceNotRegistered`, por ejemplo porque desinstalaron la app), su
+  token se borra solo.
+- Socios sin dispositivo registrado no reciben nada y no se marca recordatorio: si registran su teléfono después, aún
+  dentro de la ventana, les llega.
+- Cada mensaje trae en `data` el tipo (`EXPIRY_REMINDER` o `MEMBERSHIP_RENEWED`) y `dueDate`, para que la app sepa a qué
+  pantalla llevar al tocarlo.
+
+Para que el frontend lo use: después de `registerForPushNotificationsAsync()` en `MemberHomeScreen`, mandar el token
+que regresa a `POST /v1/push-tokens`, y quitar la notificación local de "¡Renovación Exitosa!" que hoy dispara el propio
+teléfono, porque el servidor ya manda la suya (si no, el socio recibiría dos). Las notificaciones push solo llegan a un
+teléfono real; en web no aplican.
+
 ### Probarlo desde Swagger (en desarrollo)
 
 1. Abre http://localhost:8091/swagger-ui.html.
@@ -397,6 +431,7 @@ Una migración ya aplicada nunca se edita: se crea una nueva (`V2__description.s
 | `V6__schedules.sql` | Tablas `coach`, `schedule_block` y `booking`, y la columna `member.user_id` que liga a un socio con su cuenta de acceso |
 | `V7__routines.sql` | Tablas `routine` (una por día de la semana) y `exercise` (con su URL o archivo de video, nunca ambos) |
 | `V8__announcements.sql` | Tablas `announcement` y `announcement_dismissal` (qué avisos cerró cada sesión) |
+| `V9__push_notifications.sql` | Tablas `push_token` (dispositivos de cada socio, un token no se repite) y `expiry_reminder` (qué recordatorio de vencimiento ya se envió, uno por socio y fecha) |
 
 El estado del socio (`ACTIVE`/`EXPIRED`/`TO_PURGE`) **no se guarda en la base de datos**: se calcula siempre al vuelo
 a partir de `due_date`, como pide Requerimientos-AFC-Gym.docx ("nunca se confía en un valor enviado por el cliente").
@@ -425,7 +460,7 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
 `POST /v1/routines/{id}/exercises/{exerciseId}/video`, `DELETE /v1/routines/{id}/exercises/{exerciseId}/video`,
 `GET /v1/exercise-videos/{archivo}`, `POST /v1/announcements`, `GET /v1/announcements`,
 `GET /v1/announcements/active`, `POST /v1/announcements/{id}/dismiss`, `DELETE /v1/announcements/{id}`,
-`GET /v1/dashboard/summary`, `POST /v1/check-ins`.
+`GET /v1/dashboard/summary`, `POST /v1/push-tokens`, `POST /v1/check-ins`.
 
 ## Decisiones tomadas para poder construir esto ya (a confirmar con el negocio)
 
@@ -483,3 +518,13 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
   ingresos (`changePercent`) sí es real.
 - Las ventas por categoría usan la categoría actual del producto: si un producto cambia de categoría, sus ventas del mes
   se cuentan en la nueva.
+- Los días de anticipación del recordatorio son configuración del servidor (`EXPIRY_REMINDER_DAYS_BEFORE`), no una
+  pantalla del admin. Si el negocio quiere cambiarlo desde la app, es una pieza chica (guardar el valor en la base).
+- No hay endpoint para dar de baja un dispositivo al cerrar sesión. Si otro socio inicia sesión en el mismo teléfono, el
+  token pasa a ser suyo; si nadie vuelve a entrar, el teléfono sigue recibiendo los avisos del socio anterior hasta
+  que desinstalen la app. Se puede agregar `DELETE` si el negocio lo pide.
+- No se guarda un historial de notificaciones enviadas (bandeja "mis notificaciones"); solo lo necesario para no repetir
+  recordatorios. El frontend no tiene esa pantalla.
+- El proceso programado vive dentro de la misma aplicación. Si en producción se levantan varias copias del backend, cada
+  una correría el recordatorio; la restricción única de `expiry_reminder` evita guardar dos veces, pero Expo podría
+  recibir el mismo aviso dos veces en la misma corrida. Con una sola instancia (lo normal para un gimnasio) no pasa.

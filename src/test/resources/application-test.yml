@@ -18,3 +18,8 @@ app:
     password: Test-password-123
   storage:
     videos-directory: ${java.io.tmpdir}/afc-gym-test-videos
+  notifications:
+    expo-push-url: http://localhost:9/push
+    expo-access-token:
+    expiry-reminder-days-before: 3
+    expiry-reminder-cron: "-"

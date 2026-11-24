@@ -11,6 +11,7 @@ import com.afcgym.platform.persistance.repositories.ICheckInRepository;
 import com.afcgym.platform.persistance.repositories.IPaymentRepository;
 import com.afcgym.platform.service.IMemberService;
 import com.afcgym.platform.service.IPaymentService;
+import com.afcgym.platform.service.dto.MembershipRenewedEvent;
 import com.afcgym.platform.service.dto.RenewMembershipCommand;
 import com.afcgym.platform.utils.AttendanceStreakCalculator;
 import java.math.BigDecimal;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +39,7 @@ public class PaymentServiceImpl implements IPaymentService {
     private final IPaymentRepository paymentRepository;
     private final ICheckInRepository checkInRepository;
     private final IMemberService memberService;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -67,6 +70,7 @@ public class PaymentServiceImpl implements IPaymentService {
 
         if (approvedInstantly) {
             memberService.renew(memberId, command.membershipType());
+            eventPublisher.publishEvent(new MembershipRenewedEvent(memberId));
         }
         return payment;
     }
@@ -87,6 +91,7 @@ public class PaymentServiceImpl implements IPaymentService {
         }
         payment.approve(Instant.now());
         memberService.renew(payment.getMemberId(), payment.getMembershipType());
+        eventPublisher.publishEvent(new MembershipRenewedEvent(payment.getMemberId()));
         return payment;
     }
 
