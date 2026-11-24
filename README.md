@@ -7,8 +7,8 @@ Base de datos H2 en desarrollo y PostgreSQL en producción.
 Este backend reemplaza los datos simulados del frontend de AFC App (Expo/React Native, en `../AFC-APP`). Cubre, del
 cronograma (`Cronograma-backend-AFC-Gym.xlsx`): Infraestructura, Autenticación y acceso (HU-01 a HU-06), Gestión de
 socios (HU-07 a HU-12), Membresías y pagos (HU-13 a HU-19), Tienda e inventario (HU-20 a HU-25), Ventas / POS
-(HU-26 a HU-28), Caja y corte de caja (HU-29 a HU-31), Horarios, clases y capacidad (HU-32 a HU-36) y Rutinas y
-ejercicios (HU-37 a HU-40) — ver
+(HU-26 a HU-28), Caja y corte de caja (HU-29 a HU-31), Horarios, clases y capacidad (HU-32 a HU-36), Rutinas y
+ejercicios (HU-37 a HU-40) y Anuncios (HU-41 a HU-43) — ver
 `Historias-de-Usuario-AFC-Gym.docx`.
 
 ## Abrir y correr el proyecto en IntelliJ IDEA
@@ -49,7 +49,7 @@ Pasa cuando un antivirus o proxy inspecciona HTTPS. En IntelliJ:
 
 ### Pruebas
 
-Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 35 clases de prueba (283 pruebas) ya pasan en
+Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 37 clases de prueba (306 pruebas) ya pasan en
 este repositorio (`./mvnw test`, perfil `test`, H2 en memoria).
 
 ## Perfiles
@@ -102,6 +102,8 @@ La API usa tokens JWT (válidos 1 hora). El token se envía en el encabezado `Au
 | `POST`/`GET /v1/routines`, `GET`/`PUT`/`DELETE /v1/routines/{id}`, `POST`/`DELETE /v1/routines/{id}/exercises/{exerciseId}/video` | Solo `ADMIN` |
 | `GET /v1/routines/by-day` | `ADMIN` y `SOCIO` |
 | `GET /v1/exercise-videos/{archivo}` | Cualquiera (es público, ver abajo) |
+| `POST`/`GET /v1/announcements`, `DELETE /v1/announcements/{id}` | Solo `ADMIN` |
+| `GET /v1/announcements/active`, `POST /v1/announcements/{id}/dismiss` | `ADMIN` y `SOCIO` |
 | `POST /v1/check-ins` | Solo `ADMIN` |
 
 Cada vez que se agregue un endpoint hay que decidir qué roles lo usan en `configuration/security/SecurityConfiguration`.
@@ -295,6 +297,37 @@ para saber dónde hay lugar.
 ejercicios con series, repeticiones, descanso y video. Si ese día no tiene rutina responde `404` con
 `"No hay rutina asignada para el viernes"`.
 
+### Anuncios
+
+**Publicar (HU-41)**: `POST /v1/announcements`
+
+```json
+{
+  "title": "Clases suspendidas",
+  "message": "Las clases vespertinas se suspenden por mantenimiento.",
+  "type": "URGENT",
+  "startDate": "2026-11-24",
+  "endDate": "2026-11-26"
+}
+```
+
+- `title`, `message`, `type` y `startDate` son obligatorios. `type` puede ser `INFO`, `URGENT`, `PROMOTION` o
+  `MAINTENANCE`.
+- `endDate` es opcional: es el último día en que se muestra. Si no se manda, el anuncio sigue vigente hasta que un
+  admin lo borre. No se acepta una fecha final anterior a la inicial, ni una que ya pasó.
+- `GET /v1/announcements` le da al admin todos (pasados, vigentes y programados); `current` indica si hoy está vigente.
+  Se calcula al vuelo, no se guarda.
+
+**Ver los vigentes (HU-42)**: `GET /v1/announcements/active` trae solo los que aplican hoy: urgentes primero, luego
+mantenimiento, informativos y promociones, y dentro de cada tipo los más recientes.
+
+Para que un aviso cerrado no vuelva a salir en la misma sesión, la app llama a `POST /v1/announcements/{id}/dismiss`
+cuando el socio lo cierra. El cierre se guarda con el identificador del token: aunque cierre y abra la app no reaparece,
+y al iniciar sesión de nuevo vuelve a mostrarse si sigue vigente.
+
+**Eliminar (HU-43)**: `DELETE /v1/announcements/{id}`, solo admin. Se borra de verdad, junto con sus cierres, y deja de
+mostrarse a los socios de inmediato.
+
 ### Probarlo desde Swagger (en desarrollo)
 
 1. Abre http://localhost:8091/swagger-ui.html.
@@ -345,6 +378,7 @@ Una migración ya aplicada nunca se edita: se crea una nueva (`V2__description.s
 | `V5__sales.sql` | Tablas `sale` (folio, total, método de pago, cajero) y `sale_item` (renglones del ticket) |
 | `V6__schedules.sql` | Tablas `coach`, `schedule_block` y `booking`, y la columna `member.user_id` que liga a un socio con su cuenta de acceso |
 | `V7__routines.sql` | Tablas `routine` (una por día de la semana) y `exercise` (con su URL o archivo de video, nunca ambos) |
+| `V8__announcements.sql` | Tablas `announcement` y `announcement_dismissal` (qué avisos cerró cada sesión) |
 
 El estado del socio (`ACTIVE`/`EXPIRED`/`TO_PURGE`) **no se guarda en la base de datos**: se calcula siempre al vuelo
 a partir de `due_date`, como pide Requerimientos-AFC-Gym.docx ("nunca se confía en un valor enviado por el cliente").
@@ -371,7 +405,9 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
 `GET /v1/bookings/me`, `PATCH /v1/bookings/{id}/cancel`, `POST /v1/routines`, `GET /v1/routines`,
 `GET /v1/routines/by-day`, `GET /v1/routines/{id}`, `PUT /v1/routines/{id}`, `DELETE /v1/routines/{id}`,
 `POST /v1/routines/{id}/exercises/{exerciseId}/video`, `DELETE /v1/routines/{id}/exercises/{exerciseId}/video`,
-`GET /v1/exercise-videos/{archivo}`, `POST /v1/check-ins`.
+`GET /v1/exercise-videos/{archivo}`, `POST /v1/announcements`, `GET /v1/announcements`,
+`GET /v1/announcements/active`, `POST /v1/announcements/{id}/dismiss`, `DELETE /v1/announcements/{id}`,
+`POST /v1/check-ins`.
 
 ## Decisiones tomadas para poder construir esto ya (a confirmar con el negocio)
 
@@ -418,3 +454,8 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
   "la rutina correspondiente al día", no una rutina personal).
 - Cuando un día no tiene rutina, el endpoint responde `404` con el mensaje en lugar de una respuesta vacía, para que el
   frontend pueda mostrar ese texto tal cual.
+- El frontend usa dos juegos de tipos de anuncio (`info`/`urgent`/`maintenance` en admin y `alert`/`promo` en el socio).
+  Se unificaron en `INFO`, `URGENT`, `MAINTENANCE` y `PROMOTION`; lo que hoy es `alert` corresponde a `URGENT`.
+- El HU-41 pide "una fecha", pero para saber qué está vigente (HU-42) hace falta un rango: `startDate` obligatoria y
+  `endDate` opcional. Sin fecha final el anuncio se queda hasta que lo borren, como sugiere el HU-43.
+- Los cierres de avisos no tienen limpieza automática (igual que `jwt_blocklist`); se borran al eliminar su anuncio.

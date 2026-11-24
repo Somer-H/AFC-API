@@ -18,6 +18,12 @@ public final class TestAuthentication {
                 .authorities(new SimpleGrantedAuthority("ROLE_" + role.name()));
     }
 
+    public static RequestPostProcessor asSession(Role role, String sessionId) {
+        return jwt()
+                .jwt(builder -> builder.claim("role", role.name()).claim("jti", sessionId))
+                .authorities(new SimpleGrantedAuthority("ROLE_" + role.name()));
+    }
+
     public static RequestPostProcessor asUser(Role role, Long userId) {
         return jwt()
                 .jwt(builder -> builder.claim("role", role.name())

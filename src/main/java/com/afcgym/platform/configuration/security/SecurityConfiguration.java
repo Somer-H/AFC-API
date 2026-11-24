@@ -124,6 +124,11 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.DELETE, "/v1/routines/*").hasRole(Role.ADMIN.name())
                         .requestMatchers(HttpMethod.POST, "/v1/routines/*/exercises/*/video").hasRole(Role.ADMIN.name())
                         .requestMatchers(HttpMethod.DELETE, "/v1/routines/*/exercises/*/video").hasRole(Role.ADMIN.name())
+                        .requestMatchers(HttpMethod.POST, "/v1/announcements").hasRole(Role.ADMIN.name())
+                        .requestMatchers(HttpMethod.GET, "/v1/announcements").hasRole(Role.ADMIN.name())
+                        .requestMatchers(HttpMethod.GET, "/v1/announcements/active").hasAnyRole(Role.ADMIN.name(), Role.SOCIO.name())
+                        .requestMatchers(HttpMethod.POST, "/v1/announcements/*/dismiss").hasAnyRole(Role.ADMIN.name(), Role.SOCIO.name())
+                        .requestMatchers(HttpMethod.DELETE, "/v1/announcements/*").hasRole(Role.ADMIN.name())
                         .requestMatchers(HttpMethod.POST, "/v1/check-ins").hasRole(Role.ADMIN.name())
                         .anyRequest().authenticated())
                 .exceptionHandling(exceptions -> exceptions

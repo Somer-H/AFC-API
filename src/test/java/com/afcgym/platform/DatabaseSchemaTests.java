@@ -20,7 +20,8 @@ class DatabaseSchemaTests {
     private static final List<String> EXPECTED_TABLES = List.of(
             "app_user", "member", "password_reset_token", "check_in", "jwt_blocklist", "payment",
             "category", "supplier", "product", "inventory_movement", "sale", "sale_item",
-            "coach", "schedule_block", "booking", "routine", "exercise");
+            "coach", "schedule_block", "booking", "routine", "exercise", "announcement",
+            "announcement_dismissal");
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -177,6 +178,35 @@ class DatabaseSchemaTests {
                 "INSERT INTO exercise (routine_id, sort_order, name, sets, reps, video_url, video_file) "
                         + "VALUES (?, 0, 'Sentadilla', 4, '10', 'https://youtu.be/a', 'abc.mp4')",
                 routineId));
+    }
+
+    @Test
+    void givenAnInvalidType_whenInsertingAnAnnouncement_thenThrowDataIntegrityViolationException() {
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO announcement (title, message, type, start_date) "
+                        + "VALUES ('Aviso', 'Mensaje', 'ALERT', CURRENT_DATE)"));
+    }
+
+    @Test
+    void givenAnEndBeforeTheStart_whenInsertingAnAnnouncement_thenThrowDataIntegrityViolationException() {
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO announcement (title, message, type, start_date, end_date) "
+                        + "VALUES ('Aviso', 'Mensaje', 'INFO', DATE '2026-11-20', DATE '2026-11-19')"));
+    }
+
+    @Test
+    void givenADismissedAnnouncement_whenDeletingIt_thenItsDismissalsAreDeletedToo() {
+        jdbc.update("INSERT INTO announcement (title, message, type, start_date) "
+                + "VALUES ('Cascada', 'Mensaje', 'INFO', CURRENT_DATE)");
+        long announcementId = jdbc.queryForObject("SELECT id FROM announcement WHERE title = 'Cascada'", Long.class);
+        jdbc.update("INSERT INTO announcement_dismissal (announcement_id, token_id) VALUES (?, 'session-1')",
+                announcementId);
+
+        jdbc.update("DELETE FROM announcement WHERE id = ?", announcementId);
+
+        Integer remaining = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM announcement_dismissal WHERE announcement_id = ?", Integer.class, announcementId);
+        assertTrue(remaining == 0);
     }
 
     private long insertCoach() {
