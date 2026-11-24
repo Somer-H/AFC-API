@@ -23,3 +23,16 @@ app:
     expo-access-token:
     expiry-reminder-days-before: 3
     expiry-reminder-cron: "-"
+  payments:
+    appointment-minutes: 30
+    appointment-max-days-ahead: 30
+    bank-transfer:
+      bank-name: Banco de pruebas
+      beneficiary: AFC Gym pruebas
+      clabe: "000000000000000000"
+    mercado-pago:
+      api-url: http://localhost:9/mercado-pago
+      access-token: TEST-access-token-for-tests
+      webhook-secret: webhook-secret-for-tests
+      notification-url: http://localhost/v1/payment-webhooks/mercado-pago
+      back-url:

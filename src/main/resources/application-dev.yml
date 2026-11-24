@@ -13,3 +13,8 @@ app:
     jwt-secret: ${SECRET_KEY:dev-only-secret-do-not-use-in-production-0123456789}
   bootstrap-admin:
     password: ${BOOTSTRAP_ADMIN_PASSWORD:Admin12345!}
+  payments:
+    bank-transfer:
+      bank-name: ${BANK_TRANSFER_BANK_NAME:Banco de pruebas}
+      beneficiary: ${BANK_TRANSFER_BENEFICIARY:AFC Gym datos de prueba}
+      clabe: ${BANK_TRANSFER_CLABE:000000000000000000}

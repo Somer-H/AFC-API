@@ -4,6 +4,7 @@ import com.afcgym.platform.exception.BadRequestException;
 import com.afcgym.platform.exception.ConflictException;
 import com.afcgym.platform.exception.ForbiddenException;
 import com.afcgym.platform.exception.NotFoundException;
+import com.afcgym.platform.exception.ServiceUnavailableException;
 import com.afcgym.platform.exception.UnauthorizedException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -49,6 +50,12 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.CONTENT_TOO_LARGE)
     public ErrorResponse handleUploadTooLarge(MaxUploadSizeExceededException exception) {
         return buildResponse(HttpStatus.CONTENT_TOO_LARGE, "El archivo supera el tamaño máximo permitido (100 MB)");
+    }
+
+    @ExceptionHandler(ServiceUnavailableException.class)
+    @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
+    public ErrorResponse handleServiceUnavailable(ServiceUnavailableException exception) {
+        return buildResponse(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
     }
 
     @ExceptionHandler(ConflictException.class)

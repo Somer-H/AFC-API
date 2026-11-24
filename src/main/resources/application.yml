@@ -46,3 +46,16 @@ app:
     expo-access-token: ${EXPO_ACCESS_TOKEN:}
     expiry-reminder-days-before: ${EXPIRY_REMINDER_DAYS_BEFORE:3}
     expiry-reminder-cron: ${EXPIRY_REMINDER_CRON:0 0 9 * * *}
+  payments:
+    appointment-minutes: ${PAYMENT_APPOINTMENT_MINUTES:30}
+    appointment-max-days-ahead: ${PAYMENT_APPOINTMENT_MAX_DAYS_AHEAD:30}
+    bank-transfer:
+      bank-name: ${BANK_TRANSFER_BANK_NAME:}
+      beneficiary: ${BANK_TRANSFER_BENEFICIARY:}
+      clabe: ${BANK_TRANSFER_CLABE:}
+    mercado-pago:
+      api-url: ${MERCADO_PAGO_API_URL:https://api.mercadopago.com}
+      access-token: ${MERCADO_PAGO_ACCESS_TOKEN:}
+      webhook-secret: ${MERCADO_PAGO_WEBHOOK_SECRET:}
+      notification-url: ${MERCADO_PAGO_NOTIFICATION_URL:}
+      back-url: ${MERCADO_PAGO_BACK_URL:}

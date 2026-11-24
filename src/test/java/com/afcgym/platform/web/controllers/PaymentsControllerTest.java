@@ -105,7 +105,8 @@ class PaymentsControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(renewBody))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.status").value("PENDING_BANK_VALIDATION"))
+                .andExpect(jsonPath("$.reference").isNotEmpty())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
@@ -120,6 +121,37 @@ class PaymentsControllerTest {
 
         mockMvc.perform(get("/v1/members/" + expiredMemberId).with(asRole(Role.ADMIN)))
                 .andExpect(jsonPath("$.status").value("ACTIVE"));
+    }
+
+    @Test
+    void givenATransferWhoseDepositNeverArrived_whenReject_thenItIsRejectedWithTheReason() throws Exception {
+        jdbc.update("INSERT INTO member (code, full_name, membership_type, due_date) "
+                + "VALUES ('SOC-REJECT1', 'Rejected Transfer', 'MONTHLY', CURRENT_DATE + 3)");
+        long memberId = jdbc.queryForObject("SELECT id FROM member WHERE code = 'SOC-REJECT1'", Long.class);
+        String response = mockMvc.perform(post("/v1/members/" + memberId + "/payments")
+                        .with(asRole(Role.ADMIN))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"membershipType\":\"MONTHLY\",\"method\":\"SPEI\"}"))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        long paymentId = ((Number) JsonPath.read(response, "$.id")).longValue();
+
+        mockMvc.perform(patch("/v1/payments/" + paymentId + "/reject")
+                        .with(asRole(Role.SOCIO))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"No aparece en la banca\"}"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(patch("/v1/payments/" + paymentId + "/reject")
+                        .with(asRole(Role.ADMIN))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"No aparece en la banca\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"))
+                .andExpect(jsonPath("$.rejectionReason").value("No aparece en la banca"))
+                .andExpect(jsonPath("$.rejectedAt").isNotEmpty());
     }
 
     @Test
