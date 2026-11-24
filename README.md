@@ -8,7 +8,7 @@ Este backend reemplaza los datos simulados del frontend de AFC App (Expo/React N
 cronograma (`Cronograma-backend-AFC-Gym.xlsx`): Infraestructura, Autenticación y acceso (HU-01 a HU-06), Gestión de
 socios (HU-07 a HU-12), Membresías y pagos (HU-13 a HU-19), Tienda e inventario (HU-20 a HU-25), Ventas / POS
 (HU-26 a HU-28), Caja y corte de caja (HU-29 a HU-31), Horarios, clases y capacidad (HU-32 a HU-36), Rutinas y
-ejercicios (HU-37 a HU-40) y Anuncios (HU-41 a HU-43) — ver
+ejercicios (HU-37 a HU-40), Anuncios (HU-41 a HU-43) y Dashboard (HU-44) — ver
 `Historias-de-Usuario-AFC-Gym.docx`.
 
 ## Abrir y correr el proyecto en IntelliJ IDEA
@@ -49,7 +49,7 @@ Pasa cuando un antivirus o proxy inspecciona HTTPS. En IntelliJ:
 
 ### Pruebas
 
-Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 37 clases de prueba (306 pruebas) ya pasan en
+Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 39 clases de prueba (315 pruebas) ya pasan en
 este repositorio (`./mvnw test`, perfil `test`, H2 en memoria).
 
 ## Perfiles
@@ -104,6 +104,7 @@ La API usa tokens JWT (válidos 1 hora). El token se envía en el encabezado `Au
 | `GET /v1/exercise-videos/{archivo}` | Cualquiera (es público, ver abajo) |
 | `POST`/`GET /v1/announcements`, `DELETE /v1/announcements/{id}` | Solo `ADMIN` |
 | `GET /v1/announcements/active`, `POST /v1/announcements/{id}/dismiss` | `ADMIN` y `SOCIO` |
+| `GET /v1/dashboard/summary` | Solo `ADMIN` |
 | `POST /v1/check-ins` | Solo `ADMIN` |
 
 Cada vez que se agregue un endpoint hay que decidir qué roles lo usan en `configuration/security/SecurityConfiguration`.
@@ -328,6 +329,23 @@ y al iniciar sesión de nuevo vuelve a mostrarse si sigue vigente.
 **Eliminar (HU-43)**: `DELETE /v1/announcements/{id}`, solo admin. Se borra de verdad, junto con sus cierres, y deja de
 mostrarse a los socios de inmediato.
 
+### Dashboard (HU-44)
+
+`GET /v1/dashboard/summary` arma la vista general del admin. Todo sale de los datos reales en ese momento; nada se
+guarda ni está quemado:
+
+| Bloque | Qué trae |
+|---|---|
+| `members` | Socios `active`, `expired` y `toPurge` (con las mismas reglas que el estado de cada socio, sin contar los dados de baja) y `newThisMonth` (altas del mes) |
+| `income` | Ingresos del mes actual por membresías y por tienda, el total, el total del mes anterior y `changePercent` (cambio contra el mes anterior; vacío si el mes anterior fue 0) |
+| `monthlyIncome` | Los últimos 6 meses, del más viejo al actual, para la gráfica |
+| `storeSalesByCategory` | Ventas de tienda del mes por categoría de producto (monto y unidades), de mayor a menor. Los productos sin categoría salen como "Sin categoría" |
+| `alerts.expiringMemberships` | Socios cuya membresía vence entre hoy y los próximos días (3 por defecto; se cambia con `?expiringWithinDays=7`, de 1 a 30), con los días que les quedan |
+| `alerts.lowStockProducts` | Productos activos con `stock <= minStock`, los más escasos primero |
+
+Los ingresos se calculan con el mismo servicio que el corte de caja, así que el dashboard y el corte mensual siempre
+dan la misma cifra.
+
 ### Probarlo desde Swagger (en desarrollo)
 
 1. Abre http://localhost:8091/swagger-ui.html.
@@ -407,7 +425,7 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
 `POST /v1/routines/{id}/exercises/{exerciseId}/video`, `DELETE /v1/routines/{id}/exercises/{exerciseId}/video`,
 `GET /v1/exercise-videos/{archivo}`, `POST /v1/announcements`, `GET /v1/announcements`,
 `GET /v1/announcements/active`, `POST /v1/announcements/{id}/dismiss`, `DELETE /v1/announcements/{id}`,
-`POST /v1/check-ins`.
+`GET /v1/dashboard/summary`, `POST /v1/check-ins`.
 
 ## Decisiones tomadas para poder construir esto ya (a confirmar con el negocio)
 
@@ -459,3 +477,9 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
 - El HU-41 pide "una fecha", pero para saber qué está vigente (HU-42) hace falta un rango: `startDate` obligatoria y
   `endDate` opcional. Sin fecha final el anuncio se queda hasta que lo borren, como sugiere el HU-43.
 - Los cierres de avisos no tienen limpieza automática (igual que `jwt_blocklist`); se borran al eliminar su anuncio.
+- El dashboard del frontend muestra tendencias de socios ("+5 este mes"). Saber cuántos socios estaban activos en una
+  fecha pasada requeriría guardar historial de estados, que hoy no existe (el estado se calcula con la fecha de
+  vencimiento). Por eso el resumen trae `newThisMonth` (altas del mes) en lugar de esa tendencia; la tendencia de
+  ingresos (`changePercent`) sí es real.
+- Las ventas por categoría usan la categoría actual del producto: si un producto cambia de categoría, sus ventas del mes
+  se cuentan en la nueva.
