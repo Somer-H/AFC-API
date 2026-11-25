@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.afcgym.platform.persistance.entities.enums.Role;
 import com.jayway.jsonpath.JsonPath;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +37,9 @@ class AuthControllerTest {
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private EntityManager entityManager;
 
     private MockMvc mockMvc;
 
@@ -108,6 +112,22 @@ class AuthControllerTest {
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(post("/v1/auth/refresh").header(HttpHeaders.AUTHORIZATION, "Bearer " + firstToken))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void givenAPasswordReset_whenAnOlderSessionRefreshes_thenReturnUnauthorized() throws Exception {
+        String oldSession = tokenFrom(mockMvc.perform(post("/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(LOGIN_BODY))
+                .andReturn());
+        long userId = jdbc.queryForObject("SELECT id FROM app_user WHERE username = 'admin'", Long.class);
+        jdbc.update("UPDATE app_user SET credentials_changed_at = DATEADD('SECOND', 5, CURRENT_TIMESTAMP) WHERE id = ?",
+                userId);
+        entityManager.clear();
+
+        mockMvc.perform(post("/v1/auth/refresh").header(HttpHeaders.AUTHORIZATION, "Bearer " + oldSession))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Tu sesión terminó. Inicia sesión de nuevo"));
     }
 
     @Test

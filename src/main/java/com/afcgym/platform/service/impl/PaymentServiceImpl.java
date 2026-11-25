@@ -118,7 +118,7 @@ public class PaymentServiceImpl implements IPaymentService {
     @Override
     public List<PaymentEntity> listByMember(Long memberId) {
         memberService.getById(memberId);
-        return paymentRepository.findByMemberIdOrderByCreatedAtDesc(memberId);
+        return paymentRepository.findByMemberIdOrderByCreatedAtDescIdDesc(memberId);
     }
 
     @Override
@@ -131,7 +131,10 @@ public class PaymentServiceImpl implements IPaymentService {
         if (!payment.getStatus().isOpen()) {
             throw new BadRequestException("El pago ya fue procesado");
         }
-        payment.approve(Instant.now(), adminUserId);
+        Instant now = Instant.now();
+        payment.approve(now, adminUserId);
+        appointmentRepository.findByPaymentIdAndStatusIn(payment.getId(), ACTIVE_APPOINTMENT_STATUSES)
+                .forEach(appointment -> appointment.complete(now, adminUserId));
         renewMembership(payment);
         return payment;
     }
@@ -155,7 +158,8 @@ public class PaymentServiceImpl implements IPaymentService {
     @Override
     @Transactional
     public MemberPaymentView startForMember(StartMemberPaymentCommand command, Requester requester) {
-        MemberEntity member = memberOf(requester);
+        MemberEntity member = memberRepository.findWithLockById(memberOf(requester).getId())
+                .orElseThrow(() -> new ForbiddenException("Tu cuenta no está ligada a ningún socio"));
         if (!member.isActive()) {
             throw new ForbiddenException("Tu cuenta de socio está dada de baja");
         }
@@ -188,7 +192,7 @@ public class PaymentServiceImpl implements IPaymentService {
     @Override
     public List<MemberPaymentView> listForMember(Requester requester) {
         MemberEntity member = memberOf(requester);
-        List<PaymentEntity> payments = paymentRepository.findByMemberIdOrderByCreatedAtDesc(member.getId());
+        List<PaymentEntity> payments = paymentRepository.findByMemberIdOrderByCreatedAtDescIdDesc(member.getId());
         if (payments.isEmpty()) {
             return List.of();
         }

@@ -15,6 +15,9 @@ transferencia y efectivo con cita, según el documento de alcance de pagos) — 
 que tocan al backend: sesión que expira por inactividad (RNF-05), rol Coach previsto (RNF-02), exportación del
 historial de ventas (criterio general 6) y tiempos de respuesta medidos (RNF-08).
 
+Para conectar las pantallas de la app con esta API, ver `FRONTEND_INTEGRATION.md` (qué endpoint usa cada pantalla,
+manejo de la sesión y de los errores).
+
 ## Abrir y correr el proyecto en IntelliJ IDEA
 
 1. **File > Open**, elige la carpeta `backend` (la que contiene `pom.xml`) y pulsa **Trust Project**.
@@ -53,7 +56,7 @@ Pasa cuando un antivirus o proxy inspecciona HTTPS. En IntelliJ:
 
 ### Pruebas
 
-Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 55 clases de prueba (463 pruebas) ya pasan en
+Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 55 clases de prueba (469 pruebas) ya pasan en
 este repositorio (`./mvnw test`, perfil `test`, H2 en memoria).
 
 ## Perfiles
@@ -86,7 +89,8 @@ Producción se activa con `SPRING_PROFILES_ACTIVE=prod` y estas variables de ent
 | `PAYMENT_APPOINTMENT_MAX_DAYS_AHEAD` | Con cuántos días de anticipación máxima se puede pedir una cita (por defecto 30) | No |
 | `EXPO_ACCESS_TOKEN` | Token de acceso de Expo, solo si en el proyecto de Expo se activó "Enhanced push security" | No |
 | `EXPIRY_REMINDER_DAYS_BEFORE` | Con cuántos días de anticipación se avisa que vence la membresía (por defecto 3, de 1 a 30) | No |
-| `EXPIRY_REMINDER_CRON` | A qué hora corre el recordatorio de vencimientos, en formato cron de Spring (por defecto `0 0 9 * * *`, todos los días a las 9:00 hora del servidor) | No |
+| `EXPIRY_REMINDER_CRON` | A qué hora corre el recordatorio de vencimientos, en formato cron de Spring (por defecto `0 0 9 * * *`, todos los días a las 9:00 en la zona de `APP_TIME_ZONE`) | No |
+| `APP_TIME_ZONE` | Zona horaria del gimnasio (por defecto `America/Mexico_City`). La aplicación la fija al arrancar, así que "hoy", la hora de inicio de las clases, los cortes por día y el recordatorio usan la hora del gimnasio aunque el servidor esté en UTC | No |
 
 En producción Swagger y la documentación de la API quedan desactivados.
 
@@ -196,8 +200,10 @@ misma forma que el login:
 - **Tope de la sesión:** aunque el usuario siga activo, una sesión dura como máximo `SESSION_MAX_HOURS` (12 por
   defecto). Cerca de ese tope el token se entrega con menos tiempo, y después refresh responde `401` "Tu sesión terminó.
   Inicia sesión de nuevo". Así un token robado no se puede renovar para siempre.
-- Refresh vuelve a revisar al usuario: si lo desactivaron, responde `401`. Si le cambiaron el rol, el token nuevo ya
-  trae el rol nuevo.
+- Refresh vuelve a revisar al usuario: si lo desactivaron (o se dio de baja al socio, que también desactiva su cuenta),
+  o si cambió su contraseña con la recuperación después de que empezó esa sesión, responde `401`. Así, recuperar la
+  contraseña saca a quien tuviera la sesión abierta en otro teléfono en máximo `JWT_TTL_MINUTES`. Si le cambiaron el
+  rol, el token nuevo ya trae el rol nuevo.
 - **Cerrar sesión** (`POST /v1/auth/logout`) guarda el `sid` en la tabla `jwt_blocklist` hasta el tope de la sesión, y
   `RevokedTokenValidator` rechaza cualquier token cuyo `jti` o `sid` esté ahí. Por eso el logout invalida **todos** los
   tokens de esa sesión (el actual y los que se renovaron antes), no solo el último. Los tokens de otros dispositivos del
@@ -540,7 +546,8 @@ exhibición. La liga de pago vence a las 24 horas.
    → cita `CANCELLED` y pago `APPOINTMENT_CANCELLED`. Al socio le llega el motivo y el horario sugerido; puede
    reagendar con `PATCH /v1/payments/me/{id}/appointment` (vuelve a `PENDING_APPOINTMENT`) o cancelar y elegir otro
    método.
-5. Cuando el socio paga en recepción, el admin lo confirma con `PATCH /v1/payments/{id}/approve` → `APPROVED`.
+5. Cuando el socio paga en recepción, el admin lo confirma con `PATCH /v1/payments/{id}/approve` → pago `APPROVED`
+   y cita `COMPLETED`, que sale de la agenda y deja libre ese horario.
 
 | Estado del pago | Significa |
 |---|---|
@@ -669,6 +676,8 @@ Una migración ya aplicada nunca se edita: se crea una nueva (`V2__description.s
 | `V11__audit_log.sql` | Tabla `audit_log` (historial de cambios del admin e intentos no autorizados) |
 | `V12__coach_role.sql` | Permite el rol `COACH` en `app_user` y en `audit_log` |
 | `V13__query_indexes.sql` | Índices para las consultas frecuentes en PostgreSQL (ver "Rendimiento") |
+| `V14__credentials_changed_at.sql` | Guarda cuándo cambió la contraseña de cada usuario, para cerrar las sesiones anteriores |
+| `V15__appointment_completed_status.sql` | Nuevo estado `COMPLETED` para las citas de efectivo ya cobradas |
 
 El estado del socio (`ACTIVE`/`EXPIRED`/`TO_PURGE`) **no se guarda en la base de datos**: se calcula siempre al vuelo
 a partir de `due_date`, como pide Requerimientos-AFC-Gym.docx ("nunca se confía en un valor enviado por el cliente").
@@ -713,7 +722,11 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/refresh`, `POST /v1/au
 - Al dar de alta un socio, la fecha de vencimiento inicial se calcula sola (hoy + la duración del plan elegido); después
   solo la mueve un pago aprobado (ver "Membresías y pagos").
 - "Baja de socio" (HU-10) es baja lógica (`active = false`), no borra el registro: así se conserva su historial de
-  check-ins y no rompe la llave foránea de `check_in`.
+  check-ins y no rompe la llave foránea de `check_in`. Si el socio tenía cuenta en la app, la cuenta también se
+  desactiva: ya no puede iniciar sesión ni renovar su token.
+- Si dos personas aceptan al mismo tiempo (en el mismo instante) dos citas de efectivo que se empalman, las dos pueden
+  quedar aceptadas: la revisión de empalmes no bloquea toda la agenda. Con una sola recepción no pasa; si llega a
+  pasar, el admin cancela una con horario sugerido.
 - El folio (`code`) se genera como `SOC-######` a partir del id autogenerado; como el id no existe hasta guardar, el
   alta hace un guardado interno en dos pasos (no expuesto en la API, el cliente solo ve una llamada).
 - La venta usa los mismos métodos de pago que las membresías (`CARD`, `SPEI`, `CASH`), pero en la tienda la venta se

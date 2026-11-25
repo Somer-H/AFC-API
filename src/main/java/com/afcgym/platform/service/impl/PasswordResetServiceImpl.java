@@ -54,7 +54,8 @@ public class PasswordResetServiceImpl implements IPasswordResetService {
         }
         UserEntity user = userRepository.findById(resetToken.getUserId())
                 .orElseThrow(() -> new BadRequestException(INVALID_TOKEN_MESSAGE));
-        user.changePassword(passwordEncoder.encode(newPassword));
-        resetToken.markAsUsed(Instant.now());
+        Instant now = Instant.now();
+        user.changePassword(passwordEncoder.encode(newPassword), now);
+        resetToken.markAsUsed(now);
     }
 }

@@ -126,6 +126,36 @@ class MemberServiceImplTest {
     }
 
     @Test
+    void givenAMemberWithAnAppAccount_whenDeactivate_thenTheAccountCanNoLongerLogIn() {
+        MemberEntity withAccount = MemberEntity.builder()
+                .id(2L)
+                .code("SOC-000002")
+                .fullName("Beto Test")
+                .membershipType(MembershipType.MONTHLY)
+                .dueDate(LocalDate.now().plusDays(5))
+                .active(true)
+                .userId(5L)
+                .createdAt(Instant.now())
+                .build();
+        UserEntity account = UserEntity.builder()
+                .id(5L)
+                .username("beto")
+                .fullName("Beto Test")
+                .email("beto@afcgym.com")
+                .passwordHash("hash")
+                .role(Role.SOCIO)
+                .active(true)
+                .createdAt(Instant.now())
+                .build();
+        when(memberRepository.findById(2L)).thenReturn(Optional.of(withAccount));
+        when(userRepository.findById(5L)).thenReturn(Optional.of(account));
+
+        memberService.deactivate(2L);
+
+        assertFalse(account.isActive());
+    }
+
+    @Test
     void givenAnExpiredMembership_whenRenew_thenExtendFromToday() {
         MemberEntity expiredMember = MemberEntity.builder()
                 .id(1L)

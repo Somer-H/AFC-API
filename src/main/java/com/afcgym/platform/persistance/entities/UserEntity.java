@@ -10,6 +10,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -53,11 +54,20 @@ public class UserEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    @Setter(AccessLevel.PRIVATE)
+    @Column(name = "credentials_changed_at")
+    private Instant credentialsChangedAt;
+
     public void deactivate() {
         setActive(false);
     }
 
-    public void changePassword(String newPasswordHash) {
+    public void changePassword(String newPasswordHash, Instant changedAt) {
         setPasswordHash(newPasswordHash);
+        setCredentialsChangedAt(changedAt);
+    }
+
+    public boolean credentialsChangedAfter(Instant moment) {
+        return credentialsChangedAt != null && moment.isBefore(credentialsChangedAt.truncatedTo(ChronoUnit.SECONDS));
     }
 }
