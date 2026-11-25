@@ -18,7 +18,7 @@ import com.afcgym.platform.persistance.entities.enums.PaymentStatus;
 import com.afcgym.platform.persistance.repositories.IPaymentRepository;
 import com.afcgym.platform.persistance.repositories.ISaleRepository;
 import com.afcgym.platform.service.dto.CashCutCategory;
-import com.afcgym.platform.service.dto.CashCutExport;
+import com.afcgym.platform.service.dto.ExportedFile;
 import com.afcgym.platform.service.dto.CashCutPeriod;
 import com.afcgym.platform.service.dto.CashCutReport;
 import com.afcgym.platform.service.dto.PaymentMethodBreakdown;
@@ -150,7 +150,7 @@ class CashCutServiceImplTest {
         when(saleRepository.findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(any(Instant.class), any(Instant.class)))
                 .thenReturn(List.of(sale(PaymentMethod.CASH, "150.00")));
 
-        CashCutExport export = cashCutService.export(CashCutPeriod.WEEKLY, CashCutCategory.STORE, WEDNESDAY);
+        ExportedFile export = cashCutService.export(CashCutPeriod.WEEKLY, CashCutCategory.STORE, WEDNESDAY);
 
         assertEquals("corte-de-caja_semanal_tienda_2026-11-09_2026-11-15.xlsx", export.fileName());
         assertTrue(export.content().length > 0);

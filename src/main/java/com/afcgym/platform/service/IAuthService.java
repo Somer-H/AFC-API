@@ -7,5 +7,7 @@ public interface IAuthService {
 
     LoginResult login(String username, String password);
 
+    LoginResult refresh(Jwt token);
+
     void logout(Jwt token);
 }

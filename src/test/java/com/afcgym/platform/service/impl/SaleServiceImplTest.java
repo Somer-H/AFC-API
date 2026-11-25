@@ -3,6 +3,7 @@ package com.afcgym.platform.service.impl;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -15,11 +16,16 @@ import com.afcgym.platform.exception.NotFoundException;
 import com.afcgym.platform.persistance.entities.InventoryMovementEntity;
 import com.afcgym.platform.persistance.entities.ProductEntity;
 import com.afcgym.platform.persistance.entities.SaleEntity;
+import com.afcgym.platform.persistance.entities.SaleItemEntity;
+import com.afcgym.platform.persistance.entities.UserEntity;
 import com.afcgym.platform.persistance.entities.enums.MovementType;
 import com.afcgym.platform.persistance.entities.enums.PaymentMethod;
+import com.afcgym.platform.persistance.entities.enums.Role;
 import com.afcgym.platform.persistance.repositories.IInventoryMovementRepository;
 import com.afcgym.platform.persistance.repositories.IProductRepository;
 import com.afcgym.platform.persistance.repositories.ISaleRepository;
+import com.afcgym.platform.persistance.repositories.IUserRepository;
+import com.afcgym.platform.service.dto.ExportedFile;
 import com.afcgym.platform.service.dto.RegisterSaleCommand;
 import com.afcgym.platform.service.dto.SaleLineCommand;
 import java.math.BigDecimal;
@@ -28,6 +34,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,6 +54,9 @@ class SaleServiceImplTest {
 
     @Mock
     private IInventoryMovementRepository inventoryMovementRepository;
+
+    @Mock
+    private IUserRepository userRepository;
 
     @InjectMocks
     private SaleServiceImpl saleService;
@@ -213,6 +223,51 @@ class SaleServiceImplTest {
                 .minStock(5)
                 .active(active)
                 .createdAt(Instant.now())
+                .build();
+    }
+
+    @Test
+    void givenSalesWithAndWithoutCashier_whenExport_thenLookUpTheCashierNamesAndNameTheFileAfterTheRange() {
+        LocalDate from = LocalDate.of(2026, 11, 1);
+        LocalDate to = LocalDate.of(2026, 11, 30);
+        SaleEntity withCashier = exportedSale(2L, "V-000002", 7L, "1850.00");
+        SaleEntity withoutCashier = exportedSale(1L, "V-000001", null, "25.00");
+        when(saleRepository.findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(
+                any(Instant.class), any(Instant.class)))
+                .thenReturn(List.of(withCashier, withoutCashier));
+        when(userRepository.findAllById(Set.of(7L))).thenReturn(List.of(UserEntity.builder()
+                .id(7L)
+                .username("recepcion")
+                .fullName("Recepción Uno")
+                .email("recepcion@afcgym.com")
+                .passwordHash("hash")
+                .role(Role.ADMIN)
+                .active(true)
+                .createdAt(Instant.now())
+                .build()));
+
+        ExportedFile export = saleService.export(from, to);
+
+        assertEquals("ventas_2026-11-01_2026-11-30.xlsx", export.fileName());
+        assertTrue(export.content().length > 0);
+    }
+
+    private SaleEntity exportedSale(Long id, String folio, Long cashierId, String total) {
+        return SaleEntity.builder()
+                .id(id)
+                .folio(folio)
+                .total(new BigDecimal(total))
+                .paymentMethod(PaymentMethod.CASH)
+                .cashierId(cashierId)
+                .createdAt(Instant.parse("2026-11-10T18:00:00Z"))
+                .items(List.of(SaleItemEntity.builder()
+                        .id(id)
+                        .productId(1L)
+                        .productName("Whey Protein")
+                        .quantity(2)
+                        .unitPrice(new BigDecimal(total))
+                        .subtotal(new BigDecimal(total))
+                        .build()))
                 .build();
     }
 

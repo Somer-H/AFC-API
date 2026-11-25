@@ -1,20 +1,25 @@
 package com.afcgym.platform.web.controllers;
 
 import static com.afcgym.platform.configuration.security.TestAuthentication.asRole;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.afcgym.platform.persistance.entities.enums.Role;
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.WebApplicationContext;
@@ -81,6 +86,62 @@ class AuthControllerTest {
     }
 
     @Test
+    void givenARealSession_whenRefresh_thenReturnANewTokenAndLogoutClosesEveryTokenOfTheSession() throws Exception {
+        String firstToken = tokenFrom(mockMvc.perform(post("/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(LOGIN_BODY))
+                .andExpect(status().isOk())
+                .andReturn());
+
+        String secondToken = tokenFrom(mockMvc.perform(post("/v1/auth/refresh")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + firstToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("ADMIN"))
+                .andExpect(jsonPath("$.expiresInSeconds").value(3600))
+                .andReturn());
+        assertNotEquals(firstToken, secondToken);
+
+        mockMvc.perform(post("/v1/auth/logout").header(HttpHeaders.AUTHORIZATION, "Bearer " + secondToken))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(post("/v1/auth/refresh").header(HttpHeaders.AUTHORIZATION, "Bearer " + secondToken))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/v1/auth/refresh").header(HttpHeaders.AUTHORIZATION, "Bearer " + firstToken))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void givenAnAdminSession_whenRefresh_thenTheAuditLogDoesNotRecordIt() throws Exception {
+        String token = tokenFrom(mockMvc.perform(post("/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(LOGIN_BODY))
+                .andReturn());
+
+        mockMvc.perform(post("/v1/auth/refresh").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/v1/auth/logout").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        assertEquals(0L, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM audit_log WHERE action = 'Auth.refresh'", Long.class));
+        assertNotEquals(0L, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM audit_log WHERE action = 'Auth.logout'", Long.class));
+    }
+
+    @Test
+    void givenATokenWithoutSession_whenRefresh_thenReturnUnauthorizedAskingToLogInAgain() throws Exception {
+        mockMvc.perform(post("/v1/auth/refresh").with(asRole(Role.SOCIO)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.message").value("Tu sesión terminó. Inicia sesión de nuevo"));
+    }
+
+    @Test
+    void givenNoToken_whenRefresh_thenReturnUnauthorized() throws Exception {
+        mockMvc.perform(post("/v1/auth/refresh"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void givenAKnownEmail_whenRequestPasswordReset_thenReturnNoContent() throws Exception {
         String body = "{\"email\":\"admin@afcgym.local\"}";
 
@@ -122,5 +183,9 @@ class AuthControllerTest {
                         .content(body))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("El enlace de recuperación no es válido o ya expiró"));
+    }
+
+    private String tokenFrom(MvcResult result) throws Exception {
+        return JsonPath.read(result.getResponse().getContentAsString(), "$.token");
     }
 }

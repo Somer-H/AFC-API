@@ -32,12 +32,13 @@ public class AuthController {
     @PostMapping("/login")
     @Operation(summary = "Log in with username and password")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
-        LoginResult result = authService.login(request.username(), request.password());
-        return LoginResponse.builder()
-                .token(result.token())
-                .role(result.role().name())
-                .expiresInSeconds(result.expiresInSeconds())
-                .build();
+        return toResponse(authService.login(request.username(), request.password()));
+    }
+
+    @PostMapping("/refresh")
+    @Operation(summary = "Issue a new token for the same session so it only expires after a period of inactivity")
+    public LoginResponse refresh(@AuthenticationPrincipal Jwt jwt) {
+        return toResponse(authService.refresh(jwt));
     }
 
     @PostMapping("/logout")
@@ -59,5 +60,13 @@ public class AuthController {
     @Operation(summary = "Confirm a password reset with its token")
     public void confirmPasswordReset(@Valid @RequestBody ConfirmPasswordResetRequest request) {
         passwordResetService.confirmReset(request.token(), request.newPassword());
+    }
+
+    private LoginResponse toResponse(LoginResult result) {
+        return LoginResponse.builder()
+                .token(result.token())
+                .role(result.role().name())
+                .expiresInSeconds(result.expiresInSeconds())
+                .build();
     }
 }

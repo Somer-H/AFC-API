@@ -3,6 +3,7 @@ package com.afcgym.platform.web.controllers;
 import com.afcgym.platform.configuration.security.AuthenticatedUser;
 import com.afcgym.platform.mapper.SaleMapper;
 import com.afcgym.platform.service.ISaleService;
+import com.afcgym.platform.service.dto.ExportedFile;
 import com.afcgym.platform.service.dto.RegisterSaleCommand;
 import com.afcgym.platform.service.dto.SaleLineCommand;
 import com.afcgym.platform.web.dto.request.RegisterSaleRequest;
@@ -16,7 +17,11 @@ import java.time.LocalDate;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,6 +38,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 @Tag(name = "Sales")
 public class SalesController {
+
+    private static final MediaType XLSX =
+            MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
     private final ISaleService saleService;
     private final SaleMapper saleMapper;
@@ -61,6 +69,19 @@ public class SalesController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
         return saleService.listByDateRange(from, to).stream().map(saleMapper::toResponse).toList();
+    }
+
+    @GetMapping("/export")
+    @Operation(summary = "Download the sales registered between two dates, both inclusive, as an Excel file")
+    public ResponseEntity<byte[]> export(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        ExportedFile export = saleService.export(from, to);
+        return ResponseEntity.ok()
+                .contentType(XLSX)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.attachment().filename(export.fileName()).build().toString())
+                .body(export.content());
     }
 
     @GetMapping("/{id}")
