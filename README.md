@@ -8,7 +8,9 @@ Este backend reemplaza los datos simulados del frontend de AFC App (Expo/React N
 cronograma (`Cronograma-backend-AFC-Gym.xlsx`): Infraestructura, Autenticación y acceso (HU-01 a HU-06), Gestión de
 socios (HU-07 a HU-12), Membresías y pagos (HU-13 a HU-19), Tienda e inventario (HU-20 a HU-25), Ventas / POS
 (HU-26 a HU-28), Caja y corte de caja (HU-29 a HU-31), Horarios, clases y capacidad (HU-32 a HU-36), Rutinas y
-ejercicios (HU-37 a HU-40), Anuncios (HU-41 a HU-43), Dashboard (HU-44) y Notificaciones (HU-45 a HU-47) — ver
+ejercicios (HU-37 a HU-40), Anuncios (HU-41 a HU-43), Dashboard (HU-44), Notificaciones (HU-45 a HU-47), Funciones transversales (HU-48 a HU-51) y los flujos de pago
+del socio (tarjeta con Mercado Pago,
+transferencia y efectivo con cita, según el documento de alcance de pagos) — ver
 `Historias-de-Usuario-AFC-Gym.docx`.
 
 ## Abrir y correr el proyecto en IntelliJ IDEA
@@ -49,7 +51,7 @@ Pasa cuando un antivirus o proxy inspecciona HTTPS. En IntelliJ:
 
 ### Pruebas
 
-Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 43 clases de prueba (341 pruebas) ya pasan en
+Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 53 clases de prueba (427 pruebas) ya pasan en
 este repositorio (`./mvnw test`, perfil `test`, H2 en memoria).
 
 ## Perfiles
@@ -71,6 +73,13 @@ Producción se activa con `SPRING_PROFILES_ACTIVE=prod` y estas variables de ent
 | `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_FULL_NAME`, `BOOTSTRAP_ADMIN_EMAIL` | Datos de ese primer usuario | No |
 | `ALLOWED_ORIGINS` | Direcciones del frontend permitidas por CORS, separadas por comas | Sí, con el frontend desplegado |
 | `VIDEOS_DIRECTORY` | Carpeta donde se guardan los videos subidos de los ejercicios (por defecto `./data/videos`). En producción tiene que ser un disco persistente | Sí, si se suben videos |
+| `MERCADO_PAGO_ACCESS_TOKEN` | Access token de Mercado Pago (de prueba `TEST-...` o de producción `APP_USR-...`). Sin él, el pago con tarjeta responde "no disponible" | Sí, para cobrar con tarjeta |
+| `MERCADO_PAGO_WEBHOOK_SECRET` | Clave secreta de la notificación (Webhooks) que da el panel de Mercado Pago. Sin ella se rechazan todas las notificaciones y el pago con tarjeta queda desactivado | Sí, para cobrar con tarjeta |
+| `MERCADO_PAGO_NOTIFICATION_URL` | URL pública de este backend que recibe los avisos: `https://<dominio>/v1/payment-webhooks/mercado-pago` | Sí, para cobrar con tarjeta |
+| `MERCADO_PAGO_BACK_URL` | A dónde regresa al socio Mercado Pago al terminar (por ejemplo el deep link de la app) | No |
+| `BANK_TRANSFER_BANK_NAME`, `BANK_TRANSFER_BENEFICIARY`, `BANK_TRANSFER_CLABE` | Datos bancarios que se le muestran al socio para transferir (CLABE de 18 dígitos). Sin ellos la transferencia responde "no disponible" | Sí, para cobrar por transferencia |
+| `PAYMENT_APPOINTMENT_MINUTES` | Cuánto dura una cita de pago en efectivo, para detectar empalmes (por defecto 30) | No |
+| `PAYMENT_APPOINTMENT_MAX_DAYS_AHEAD` | Con cuántos días de anticipación máxima se puede pedir una cita (por defecto 30) | No |
 | `EXPO_ACCESS_TOKEN` | Token de acceso de Expo, solo si en el proyecto de Expo se activó "Enhanced push security" | No |
 | `EXPIRY_REMINDER_DAYS_BEFORE` | Con cuántos días de anticipación se avisa que vence la membresía (por defecto 3, de 1 a 30) | No |
 | `EXPIRY_REMINDER_CRON` | A qué hora corre el recordatorio de vencimientos, en formato cron de Spring (por defecto `0 0 9 * * *`, todos los días a las 9:00 hora del servidor) | No |
@@ -109,9 +118,56 @@ La API usa tokens JWT (válidos 1 hora). El token se envía en el encabezado `Au
 | `GET /v1/announcements/active`, `POST /v1/announcements/{id}/dismiss` | `ADMIN` y `SOCIO` |
 | `GET /v1/dashboard/summary` | Solo `ADMIN` |
 | `POST /v1/push-tokens` | Solo `SOCIO` |
+| `POST /v1/payments/me`, `GET /v1/payments/me`, `GET /v1/payments/me/{id}`, `PATCH /v1/payments/me/{id}/cancel`, `PATCH /v1/payments/me/{id}/appointment` | Solo `SOCIO` (cada socio solo ve y toca sus propios pagos) |
+| `PATCH /v1/payments/{id}/reject`, `GET /v1/payment-appointments`, `PATCH /v1/payment-appointments/{id}/accept`, `PATCH /v1/payment-appointments/{id}/cancel` | Solo `ADMIN` |
+| `POST /v1/payment-webhooks/mercado-pago` | Público, pero solo se procesa si trae la firma válida de Mercado Pago |
+| `GET /v1/audit-logs` | Solo `ADMIN` (solo lectura: no existe forma de editar ni borrar registros) |
 | `POST /v1/check-ins` | Solo `ADMIN` |
 
 Cada vez que se agregue un endpoint hay que decidir qué roles lo usan en `configuration/security/SecurityConfiguration`.
+
+### Errores y validaciones (HU-48 y HU-49)
+
+Toda respuesta de error tiene el mismo formato, con el mensaje en español y sin datos técnicos:
+
+```json
+{ "status": 400, "message": "Faltan campos obligatorios: fullName, membershipType",
+  "fields": { "fullName": "es obligatorio", "membershipType": "es obligatorio" } }
+```
+
+| Caso | Respuesta |
+|---|---|
+| Campos obligatorios vacíos | `400` "Faltan campos obligatorios: ..." y `fields` con cada campo |
+| Campo con formato incorrecto (correo, patrón, longitud, rango) | `400` "Revisa estos campos: email (no es un correo válido)" |
+| Valor de opción inexistente | `400` "El valor 'DAILY' no es válido para membershipType. Valores permitidos: WEEKLY, ..." |
+| JSON mal formado | `400` "El cuerpo de la petición no es un JSON válido" |
+| Parámetro con tipo incorrecto o faltante | `400` "El parámetro id no tiene un formato válido" / "Falta el parámetro obligatorio period" |
+| Ruta inexistente, método no permitido, contenido que no es JSON | `404`, `405` y `415` con su mensaje |
+| Error inesperado del servidor | `500` "Ocurrió un error inesperado. Intenta de nuevo más tarde" (el detalle solo queda en el log del servidor) |
+
+`fields` solo aparece cuando el error es de un campo concreto. Las operaciones exitosas responden con el registro
+guardado (`200`/`201`) o `204` cuando no hay nada que devolver; el frontend muestra su propio mensaje de confirmación.
+
+### Auditoría (HU-50 y HU-51)
+
+La tabla `audit_log` guarda, sin que cada pantalla tenga que hacer nada:
+
+- **Cada cambio que hace un admin** (cualquier `POST`, `PUT`, `PATCH` o `DELETE` exitoso: altas, ediciones, bajas,
+  aprobación y rechazo de pagos, citas, inventario, rutinas, anuncios...).
+- **Cada pago aprobado por Mercado Pago** (actor vacío, acción `MercadoPago.paymentApproved`).
+- **Cada intento no autorizado**: un rol que no tiene permiso (`403`) o un socio que intenta ver o modificar un pago de
+  otro socio (responde `404` para no revelar que existe, pero queda registrado como `DENIED`).
+
+Cada registro dice **quién** (`actorUserId`, `actorRole`), **cuándo** (`occurredAt`) y **qué** (`action` como
+`Payments.approve`, método, ruta, `targetId` del registro afectado o creado, `outcome` `SUCCESS`/`DENIED` y el código
+de respuesta). Nunca se guarda el cuerpo de la petición (podría traer contraseñas o PIN).
+
+El admin lo consulta con `GET /v1/audit-logs?actorUserId=&action=&outcome=&from=2026-11-01&to=2026-11-30&page=0&size=50`
+(más reciente primero, máximo 100 por página). La aplicación no tiene ninguna forma de editar ni borrar registros: la
+entidad no tiene setters, el repositorio solo permite guardar y consultar, y no hay endpoints `PUT`/`DELETE`.
+
+Los datos sensibles (pagos, contacto) ya estaban restringidos por rol: un socio solo ve sus propias reservas y pagos,
+y todo lo de socios, pagos de recepción, corte de caja, dashboard y auditoría es solo `ADMIN`.
 
 ### Cerrar sesión con JWT sin estado
 
@@ -133,8 +189,11 @@ antes de que este flujo sea usable por un socio de verdad.
 | Método | Qué pasa |
 |---|---|
 | `CARD` | Se aprueba al instante (`status: APPROVED`) y la membresía se renueva en la misma operación. Requiere `cardLastFour` (4 dígitos). |
-| `SPEI` | Queda `PENDING`; la membresía **no** se renueva hasta aprobarla con `PATCH /v1/payments/{id}/approve`. |
-| `CASH` | Igual que SPEI, pero requiere `scheduledDate` (fecha de la cita en recepción). |
+| `SPEI` | Queda `PENDING_BANK_VALIDATION`; la membresía **no** se renueva hasta aprobarla con `PATCH /v1/payments/{id}/approve` (o se rechaza con `PATCH /v1/payments/{id}/reject`). |
+| `CASH` | Queda `PENDING`; requiere `scheduledDate` (fecha de la cita en recepción) y se aprueba igual que SPEI. |
+
+Este endpoint es el de **recepción** (lo usa el admin). El socio paga desde la app con los flujos de la sección
+"Flujos de pago del socio".
 
 El monto se calcula solo: precio base del plan (`membershipType.basePrice`, valores de ejemplo en
 `MembershipType.java`, **a confirmar con el negocio**) menos el descuento por racha de asistencia (HU-17): 10% a
@@ -360,7 +419,7 @@ frontend):
 | Registrar el dispositivo (HU-45) | El socio, con su sesión iniciada, envía el `ExpoPushToken` de su teléfono a `POST /v1/push-tokens` (`{ "token": "ExponentPushToken[...]" }`). Puede registrar varios dispositivos. Volver a enviar el mismo token no lo duplica, y si otro socio inicia sesión en ese teléfono, el token pasa a ser suyo |
 | Recordatorio de vencimiento (HU-46) | Un proceso programado corre todos los días (`EXPIRY_REMINDER_CRON`) y avisa a los socios activos cuya membresía vence entre hoy y los próximos `EXPIRY_REMINDER_DAYS_BEFORE` días: "Tu membresía vence en 3 días (27/11/2026)". Se avisa una sola vez por cada fecha de vencimiento (tabla `expiry_reminder`) |
 | Cancelación si ya renovó (HU-46) | La decisión se toma al momento de enviar con la fecha de vencimiento actual: si el socio ya renovó, su fecha ya salió de la ventana y no recibe nada |
-| Aviso de renovación (HU-47) | En cuanto un pago queda aprobado (tarjeta al instante, o SPEI/efectivo cuando el admin lo aprueba) le llega "Pago confirmado. Tu membresía quedó renovada. Vence el ..." a todos sus dispositivos |
+| Aviso de renovación (HU-47) | En cuanto un pago queda aprobado (tarjeta al instante, o SPEI/efectivo cuando el admin lo aprueba) le llega "Tu pago ya se recibió. Tu membresía quedó renovada. Vence el ..." a todos sus dispositivos |
 
 Detalles:
 
@@ -379,6 +438,90 @@ Para que el frontend lo use: después de `registerForPushNotificationsAsync()` e
 que regresa a `POST /v1/push-tokens`, y quitar la notificación local de "¡Renovación Exitosa!" que hoy dispara el propio
 teléfono, porque el servidor ya manda la suya (si no, el socio recibiría dos). Las notificaciones push solo llegan a un
 teléfono real; en web no aplican.
+
+### Flujos de pago del socio (documento de alcance de pagos)
+
+El socio renueva su membresía desde la app con `POST /v1/payments/me`
+(`{ "membershipType": "MONTHLY", "method": "CARD" | "SPEI" | "CASH", "appointmentAt": "2026-11-25T18:00" }`).
+El monto siempre lo calcula el servidor (precio del plan menos el descuento por racha); el cliente nunca lo manda.
+Cada pago tiene una referencia legible (`PAG-000123`). Un socio solo puede tener **un pago en proceso** a la vez:
+si quiere cambiar de método, cancela el actual con `PATCH /v1/payments/me/{id}/cancel`.
+
+**A. Tarjeta con Mercado Pago (cobro automático)**
+
+1. `POST /v1/payments/me` con `CARD` crea el pago en `AWAITING_GATEWAY` y una preferencia de Checkout Pro en Mercado
+   Pago; la respuesta trae `checkoutUrl`. La app abre esa URL y el socio paga en la página de Mercado Pago: los datos
+   de la tarjeta nunca pasan por este backend.
+2. Mercado Pago avisa a `POST /v1/payment-webhooks/mercado-pago`. El backend:
+   - comprueba la firma `x-signature` con `MERCADO_PAGO_WEBHOOK_SECRET` (si no coincide responde `401` y no hace nada);
+   - **no confía en el contenido del aviso**: consulta el pago directo en la API de Mercado Pago;
+   - verifica que la referencia sea un pago con tarjeta de este gimnasio y que el monto y la moneda (MXN) coincidan;
+   - bloquea el pago en la base de datos mientras lo procesa, así que si el aviso llega repetido (Mercado Pago reintenta)
+     la membresía se renueva **una sola vez**.
+3. Si el cobro se aprueba: el pago pasa a `APPROVED`, se renueva la membresía y le llega el push "Tu pago ya se recibió".
+   Si se rechaza: pasa a `GATEWAY_REJECTED` y el socio puede intentar de nuevo con otro pago.
+4. La app sigue el estado con `GET /v1/payments/me/{id}`. El admin no puede aprobar a mano un pago con tarjeta.
+
+Solo se aceptan tarjetas (se excluyen OXXO y cajeros, que dejarían el pago pendiente varios días) y en una sola
+exhibición. La liga de pago vence a las 24 horas.
+
+**B. Transferencia (validación manual del admin)**
+
+1. `POST /v1/payments/me` con `SPEI` deja el pago en `PENDING_BANK_VALIDATION` y la respuesta trae `bankTransfer`
+   (banco, beneficiario, CLABE y la referencia para el concepto). Los datos bancarios salen de la configuración
+   (`BANK_TRANSFER_*`), no del frontend.
+2. El admin revisa su banca y:
+   - confirma con `PATCH /v1/payments/{id}/approve` → `APPROVED`, se guarda la fecha y qué admin aprobó
+     (`approvedAt`, `approvedBy`), se renueva la membresía y llega el push "Tu pago ya se recibió";
+   - o, si el depósito no llegó, rechaza con `PATCH /v1/payments/{id}/reject` (`{ "reason": "..." }`, obligatorio)
+     → `REJECTED`, se guarda motivo, fecha y qué admin rechazó, y al socio le llega "No recibimos tu transferencia" con el
+     motivo. El socio puede iniciar otro pago.
+
+**C. Efectivo con cita (confirmación del admin)**
+
+1. `POST /v1/payments/me` con `CASH` y `appointmentAt` (futura, máximo `PAYMENT_APPOINTMENT_MAX_DAYS_AHEAD` días) deja
+   el pago en `PENDING_APPOINTMENT` y crea una cita `PENDING` ligada al socio, al pago y al monto.
+2. El admin consulta `GET /v1/payment-appointments`: citas pendientes y próximas aceptadas, ordenadas por hora, con
+   datos del socio (folio, nombre, teléfono) y del pago (referencia, plan, monto).
+3. `PATCH /v1/payment-appointments/{id}/accept` → cita `ACCEPTED` y pago `APPOINTMENT_CONFIRMED`. Responde `409` si ya
+   hay otra cita aceptada a menos de `PAYMENT_APPOINTMENT_MINUTES` minutos. Al socio le llega "Cita confirmada".
+4. `PATCH /v1/payment-appointments/{id}/cancel` (`{ "reason": "...", "suggestedAt": "..." }`, ambos opcionales)
+   → cita `CANCELLED` y pago `APPOINTMENT_CANCELLED`. Al socio le llega el motivo y el horario sugerido; puede
+   reagendar con `PATCH /v1/payments/me/{id}/appointment` (vuelve a `PENDING_APPOINTMENT`) o cancelar y elegir otro
+   método.
+5. Cuando el socio paga en recepción, el admin lo confirma con `PATCH /v1/payments/{id}/approve` → `APPROVED`.
+
+| Estado del pago | Significa |
+|---|---|
+| `AWAITING_GATEWAY` | Esperando que el socio pague en Mercado Pago |
+| `GATEWAY_REJECTED` | Mercado Pago rechazó el cobro |
+| `PENDING_BANK_VALIDATION` | Transferencia esperando que el admin la confirme |
+| `PENDING_APPOINTMENT` | Pago en efectivo con cita por confirmar |
+| `APPOINTMENT_CONFIRMED` | Cita aceptada; falta que el socio pague |
+| `APPOINTMENT_CANCELLED` | Recepción canceló la cita; el socio puede reagendar o cambiar de método |
+| `PENDING` | Pago en efectivo registrado en recepción (endpoint del admin) |
+| `APPROVED` | Pagado; la membresía ya se renovó |
+| `REJECTED` | Transferencia rechazada por el admin |
+| `CANCELLED` | El socio canceló el pago antes de pagarlo |
+
+**Cómo conectar Mercado Pago (una vez):**
+
+1. Crear una aplicación en el panel de desarrolladores de Mercado Pago (producto Checkout Pro).
+2. Copiar el access token de prueba a `MERCADO_PAGO_ACCESS_TOKEN`.
+3. En la sección **Webhooks** de la aplicación, registrar la URL pública
+   `https://<dominio>/v1/payment-webhooks/mercado-pago`, marcar el evento **Pagos** y copiar la clave secreta que
+   genera a `MERCADO_PAGO_WEBHOOK_SECRET`. Poner la misma URL en `MERCADO_PAGO_NOTIFICATION_URL`.
+4. Para probar en local, el webhook necesita que el backend sea accesible desde internet (por ejemplo con un túnel).
+5. Al pasar a producción, cambiar a las credenciales de producción; el backend usa la liga de pruebas solo cuando el
+   token empieza con `TEST-`.
+
+**Lo que le toca al frontend** (nosotros no lo tocamos):
+
+- Cambiar el formulario de tarjeta de `PaymentModal.js` (hoy pide número y CVV) por abrir `checkoutUrl`, por ejemplo
+  con `expo-web-browser`, y al volver consultar `GET /v1/payments/me/{id}`.
+- Mostrar los datos de `bankTransfer` que manda el backend en lugar de la CLABE fija.
+- Mandar fecha y hora reales de la cita (`appointmentAt`) en lugar del texto libre "Hoy por la tarde".
+- Traducir los estados de la tabla de arriba.
 
 ### Probarlo desde Swagger (en desarrollo)
 
@@ -431,6 +574,8 @@ Una migración ya aplicada nunca se edita: se crea una nueva (`V2__description.s
 | `V6__schedules.sql` | Tablas `coach`, `schedule_block` y `booking`, y la columna `member.user_id` que liga a un socio con su cuenta de acceso |
 | `V7__routines.sql` | Tablas `routine` (una por día de la semana) y `exercise` (con su URL o archivo de video, nunca ambos) |
 | `V8__announcements.sql` | Tablas `announcement` y `announcement_dismissal` (qué avisos cerró cada sesión) |
+| `V11__audit_log.sql` | Tabla `audit_log` (historial de cambios del admin e intentos no autorizados) |
+| `V10__payment_flows.sql` | Nuevos estados de `payment`, quién aprobó o rechazó, motivo de rechazo, datos de Mercado Pago (preferencia, id del cobro, liga de pago) y la tabla `payment_appointment` (citas para pagar en efectivo) |
 | `V9__push_notifications.sql` | Tablas `push_token` (dispositivos de cada socio, un token no se repite) y `expiry_reminder` (qué recordatorio de vencimiento ya se envió, uno por socio y fecha) |
 
 El estado del socio (`ACTIVE`/`EXPIRED`/`TO_PURGE`) **no se guarda en la base de datos**: se calcula siempre al vuelo
@@ -460,7 +605,11 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
 `POST /v1/routines/{id}/exercises/{exerciseId}/video`, `DELETE /v1/routines/{id}/exercises/{exerciseId}/video`,
 `GET /v1/exercise-videos/{archivo}`, `POST /v1/announcements`, `GET /v1/announcements`,
 `GET /v1/announcements/active`, `POST /v1/announcements/{id}/dismiss`, `DELETE /v1/announcements/{id}`,
-`GET /v1/dashboard/summary`, `POST /v1/push-tokens`, `POST /v1/check-ins`.
+`GET /v1/dashboard/summary`, `POST /v1/push-tokens`, `POST /v1/payments/me`, `GET /v1/payments/me`,
+`GET /v1/payments/me/{id}`, `PATCH /v1/payments/me/{id}/cancel`, `PATCH /v1/payments/me/{id}/appointment`,
+`PATCH /v1/payments/{id}/reject`, `GET /v1/payment-appointments`, `PATCH /v1/payment-appointments/{id}/accept`,
+`PATCH /v1/payment-appointments/{id}/cancel`, `POST /v1/payment-webhooks/mercado-pago`, `GET /v1/audit-logs`,
+`POST /v1/check-ins`.
 
 ## Decisiones tomadas para poder construir esto ya (a confirmar con el negocio)
 
@@ -528,3 +677,24 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
 - El proceso programado vive dentro de la misma aplicación. Si en producción se levantan varias copias del backend, cada
   una correría el recordatorio; la restricción única de `expiry_reminder` evita guardar dos veces, pero Expo podría
   recibir el mismo aviso dos veces en la misma corrida. Con una sola instancia (lo normal para un gimnasio) no pasa.
+- **Alcance del documento de pagos:** habla de "orden" y "pedido", pero en la app el socio solo paga la renovación de
+  su membresía (es el único pago del `PaymentModal`). Por eso los tres flujos son para renovaciones; el pago funciona
+  como la orden (no hay una tabla de órdenes aparte). Los estados que el documento escribe en español
+  (`pendiente_validacion_bancaria`, `cita_confirmada_efectivo`...) están en inglés, como el resto de la API.
+- Si el socio cancela un pago con tarjeta pero alcanza a pagar en la página de Mercado Pago antes de que venza la liga,
+  el cobro se respeta: el pago pasa a `APPROVED` y la membresía se renueva, porque el dinero sí se cobró.
+- Reembolsos y contracargos de Mercado Pago no revierten la renovación en automático; se ven en el panel de Mercado
+  Pago y se manejan a mano.
+- Cada cita dura 30 minutos para detectar empalmes y no se valida contra un horario de atención (el documento no lo
+  define). Ambos se pueden ajustar.
+- El pago en efectivo registrado desde recepción (`POST /v1/members/{id}/payments`) sigue igual: queda `PENDING` y no
+  usa citas.
+- La auditoría registra los cambios **exitosos** del admin; un intento del admin que falla por validación (`400`) no se
+  guarda porque no cambió nada. Las peticiones sin token (`401`) tampoco se guardan, para no llenar la tabla con
+  tráfico anónimo.
+- El registro de auditoría se escribe al terminar cada petición, en su propia transacción. Si la base de datos fallara
+  justo en ese instante, el cambio quedaría hecho sin su registro (y el error queda en el log del servidor). Para un
+  historial a prueba de todo, en producción se puede además quitarle al usuario de la base de datos el permiso de
+  `UPDATE`/`DELETE` sobre `audit_log`.
+- `action` se forma con el nombre del controlador y del método (`Members.deactivate`, `Payments.reject`), así que una
+  pantalla de auditoría en el frontend puede traducirlo con una tabla.

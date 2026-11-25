@@ -21,7 +21,7 @@ class DatabaseSchemaTests {
             "app_user", "member", "password_reset_token", "check_in", "jwt_blocklist", "payment",
             "category", "supplier", "product", "inventory_movement", "sale", "sale_item",
             "coach", "schedule_block", "booking", "routine", "exercise", "announcement",
-            "announcement_dismissal", "push_token", "expiry_reminder");
+            "announcement_dismissal", "push_token", "expiry_reminder", "payment_appointment", "audit_log");
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -224,6 +224,24 @@ class DatabaseSchemaTests {
         jdbc.update("INSERT INTO expiry_reminder (member_id, due_date) VALUES (?, CURRENT_DATE)", memberId);
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
                 "INSERT INTO expiry_reminder (member_id, due_date) VALUES (?, CURRENT_DATE)", memberId));
+    }
+
+    @Test
+    void givenAnInvalidStatus_whenInsertingAPaymentAppointment_thenThrowDataIntegrityViolationException() {
+        long memberId = insertMember("Ana Cita");
+        jdbc.update("INSERT INTO payment (member_id, membership_type, method, status, amount) "
+                + "VALUES (?, 'MONTHLY', 'CASH', 'PENDING_APPOINTMENT', 500)", memberId);
+        long paymentId = jdbc.queryForObject("SELECT MAX(id) FROM payment", Long.class);
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO payment_appointment (payment_id, member_id, scheduled_at, status) "
+                        + "VALUES (?, ?, CURRENT_TIMESTAMP, 'MAYBE')", paymentId, memberId));
+    }
+
+    @Test
+    void givenAnInvalidOutcome_whenInsertingAnAuditEntry_thenThrowDataIntegrityViolationException() {
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO audit_log (action, http_method, path, outcome, response_status) "
+                        + "VALUES ('Members.create', 'POST', '/v1/members', 'MAYBE', 201)"));
     }
 
     private long insertCoach() {

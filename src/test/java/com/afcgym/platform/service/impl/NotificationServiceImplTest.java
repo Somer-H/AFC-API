@@ -20,6 +20,9 @@ import com.afcgym.platform.persistance.repositories.IExpiryReminderRepository;
 import com.afcgym.platform.persistance.repositories.IMemberRepository;
 import com.afcgym.platform.persistance.repositories.IPushTokenRepository;
 import com.afcgym.platform.service.IPushDeliveryService;
+import com.afcgym.platform.service.dto.AppointmentAcceptedEvent;
+import com.afcgym.platform.service.dto.AppointmentCancelledEvent;
+import com.afcgym.platform.service.dto.PaymentRejectedEvent;
 import com.afcgym.platform.service.dto.MembershipRenewedEvent;
 import com.afcgym.platform.service.dto.PushDeliveryReport;
 import com.afcgym.platform.service.dto.PushMessage;
@@ -257,7 +260,7 @@ class NotificationServiceImplTest {
         verify(pushTokenRepository, never()).deleteByTokenIn(any());
         assertEquals(2, messagesCaptor.getValue().size());
         PushMessage message = messagesCaptor.getValue().getFirst();
-        assertEquals("Pago confirmado", message.title());
+        assertEquals("Tu pago ya se recibió", message.title());
         assertEquals("Tu membresía quedó renovada. Vence el 24/12/2026.", message.body());
         assertEquals("MEMBERSHIP_RENEWED", message.data().get("type"));
     }
@@ -269,6 +272,59 @@ class NotificationServiceImplTest {
         notificationService.notifyMembershipRenewed(new MembershipRenewedEvent(1L));
 
         verify(memberRepository, never()).findById(any());
+        verifyNoInteractions(pushDeliveryService);
+    }
+
+    @Test
+    void givenARejectedTransfer_whenNotifyPaymentRejected_thenTellTheMemberWhy() {
+        when(pushTokenRepository.findByMemberId(1L)).thenReturn(List.of(createPushTokenDummy(1L, PHONE_TOKEN)));
+        when(pushDeliveryService.deliver(anyList())).thenReturn(new PushDeliveryReport(Set.of(PHONE_TOKEN), Set.of()));
+
+        notificationService.notifyPaymentRejected(new PaymentRejectedEvent(1L, "No aparece en la banca"));
+
+        verify(pushDeliveryService).deliver(messagesCaptor.capture());
+        PushMessage message = messagesCaptor.getValue().getFirst();
+        assertEquals("No recibimos tu transferencia", message.title());
+        assertEquals("Revisamos tu transferencia y no encontramos el depósito. Motivo: No aparece en la banca. "
+                + "Puedes intentar de nuevo o elegir otro método de pago.", message.body());
+        assertEquals("PAYMENT_REJECTED", message.data().get("type"));
+    }
+
+    @Test
+    void givenAnAcceptedAppointment_whenNotifyAppointmentAccepted_thenConfirmTheDateAndTime() {
+        when(pushTokenRepository.findByMemberId(1L)).thenReturn(List.of(createPushTokenDummy(1L, PHONE_TOKEN)));
+        when(pushDeliveryService.deliver(anyList())).thenReturn(new PushDeliveryReport(Set.of(PHONE_TOKEN), Set.of()));
+
+        notificationService.notifyAppointmentAccepted(new AppointmentAcceptedEvent(1L, today.plusDays(1).atTime(18, 0)));
+
+        verify(pushDeliveryService).deliver(messagesCaptor.capture());
+        PushMessage message = messagesCaptor.getValue().getFirst();
+        assertEquals("Cita confirmada", message.title());
+        assertEquals("Te esperamos el 25/11/2026 a las 18:00 en recepción para tu pago en efectivo.", message.body());
+    }
+
+    @Test
+    void givenAnAppointmentCancelledWithASuggestion_whenNotifyAppointmentCancelled_thenIncludeReasonAndSuggestion() {
+        when(pushTokenRepository.findByMemberId(1L)).thenReturn(List.of(createPushTokenDummy(1L, PHONE_TOKEN)));
+        when(pushDeliveryService.deliver(anyList())).thenReturn(new PushDeliveryReport(Set.of(PHONE_TOKEN), Set.of()));
+
+        notificationService.notifyAppointmentCancelled(new AppointmentCancelledEvent(1L, "Recepción cerrada",
+                today.plusDays(2).atTime(10, 30)));
+
+        verify(pushDeliveryService).deliver(messagesCaptor.capture());
+        PushMessage message = messagesCaptor.getValue().getFirst();
+        assertEquals("Tu cita fue cancelada", message.title());
+        assertEquals("Recepción canceló tu cita para pagar en efectivo. Motivo: Recepción cerrada. "
+                + "Te sugerimos el 26/11/2026 a las 10:30. Puedes elegir otro horario u otro método de pago.",
+                message.body());
+    }
+
+    @Test
+    void givenAMemberWithoutDevices_whenNotifyAppointmentCancelled_thenSendNothing() {
+        when(pushTokenRepository.findByMemberId(1L)).thenReturn(List.of());
+
+        notificationService.notifyAppointmentCancelled(new AppointmentCancelledEvent(1L, null, null));
+
         verifyNoInteractions(pushDeliveryService);
     }
 

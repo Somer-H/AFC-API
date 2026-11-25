@@ -11,13 +11,17 @@ import com.afcgym.platform.persistance.repositories.IMemberRepository;
 import com.afcgym.platform.persistance.repositories.IPushTokenRepository;
 import com.afcgym.platform.service.INotificationService;
 import com.afcgym.platform.service.IPushDeliveryService;
+import com.afcgym.platform.service.dto.AppointmentAcceptedEvent;
+import com.afcgym.platform.service.dto.AppointmentCancelledEvent;
 import com.afcgym.platform.service.dto.MembershipRenewedEvent;
+import com.afcgym.platform.service.dto.PaymentRejectedEvent;
 import com.afcgym.platform.service.dto.PushDeliveryReport;
 import com.afcgym.platform.service.dto.PushMessage;
 import com.afcgym.platform.service.dto.Requester;
 import com.afcgym.platform.utils.SpanishDateFormatter;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,6 +45,10 @@ public class NotificationServiceImpl implements INotificationService {
     private static final String DUE_DATE_KEY = "dueDate";
     private static final String EXPIRY_REMINDER_TYPE = "EXPIRY_REMINDER";
     private static final String MEMBERSHIP_RENEWED_TYPE = "MEMBERSHIP_RENEWED";
+    private static final String PAYMENT_REJECTED_TYPE = "PAYMENT_REJECTED";
+    private static final String APPOINTMENT_ACCEPTED_TYPE = "APPOINTMENT_ACCEPTED";
+    private static final String APPOINTMENT_CANCELLED_TYPE = "APPOINTMENT_CANCELLED";
+    private static final String SCHEDULED_AT_KEY = "scheduledAt";
 
     private final IPushTokenRepository pushTokenRepository;
     private final IExpiryReminderRepository expiryReminderRepository;
@@ -130,6 +138,57 @@ public class NotificationServiceImpl implements INotificationService {
         removeUnregisteredTokens(pushDeliveryService.deliver(messages));
     }
 
+    @Override
+    @TransactionalEventListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void notifyPaymentRejected(PaymentRejectedEvent event) {
+        sendToMember(event.memberId(), "No recibimos tu transferencia",
+                "Revisamos tu transferencia y no encontramos el depósito. Motivo: " + event.reason()
+                        + ". Puedes intentar de nuevo o elegir otro método de pago.",
+                Map.of(TYPE_KEY, PAYMENT_REJECTED_TYPE));
+    }
+
+    @Override
+    @TransactionalEventListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void notifyAppointmentAccepted(AppointmentAcceptedEvent event) {
+        sendToMember(event.memberId(), "Cita confirmada",
+                "Te esperamos el " + describeDateTime(event.scheduledAt())
+                        + " en recepción para tu pago en efectivo.",
+                Map.of(TYPE_KEY, APPOINTMENT_ACCEPTED_TYPE, SCHEDULED_AT_KEY, event.scheduledAt().toString()));
+    }
+
+    @Override
+    @TransactionalEventListener
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void notifyAppointmentCancelled(AppointmentCancelledEvent event) {
+        StringBuilder body = new StringBuilder("Recepción canceló tu cita para pagar en efectivo.");
+        if (event.reason() != null) {
+            body.append(" Motivo: ").append(event.reason()).append(".");
+        }
+        if (event.suggestedAt() != null) {
+            body.append(" Te sugerimos el ").append(describeDateTime(event.suggestedAt())).append(".");
+        }
+        body.append(" Puedes elegir otro horario u otro método de pago.");
+        sendToMember(event.memberId(), "Tu cita fue cancelada", body.toString(),
+                Map.of(TYPE_KEY, APPOINTMENT_CANCELLED_TYPE));
+    }
+
+    private void sendToMember(Long memberId, String title, String body, Map<String, String> data) {
+        List<PushTokenEntity> pushTokens = pushTokenRepository.findByMemberId(memberId);
+        if (pushTokens.isEmpty()) {
+            return;
+        }
+        List<PushMessage> messages = pushTokens.stream()
+                .map(pushToken -> new PushMessage(pushToken.getToken(), title, body, DEFAULT_SOUND, data))
+                .toList();
+        removeUnregisteredTokens(pushDeliveryService.deliver(messages));
+    }
+
+    private String describeDateTime(LocalDateTime dateTime) {
+        return SpanishDateFormatter.date(dateTime.toLocalDate()) + " a las " + SpanishDateFormatter.time(dateTime);
+    }
+
     private boolean wasReminded(MemberEntity member, List<ExpiryReminderEntity> alreadySent) {
         return alreadySent.stream().anyMatch(reminder -> reminder.getMemberId().equals(member.getId())
                 && reminder.getDueDate().equals(member.getDueDate()));
@@ -154,7 +213,7 @@ public class NotificationServiceImpl implements INotificationService {
 
     private PushMessage renewalMessage(String token, LocalDate dueDate) {
         String body = "Tu membresía quedó renovada. Vence el " + SpanishDateFormatter.date(dueDate) + ".";
-        return new PushMessage(token, "Pago confirmado", body, DEFAULT_SOUND,
+        return new PushMessage(token, "Tu pago ya se recibió", body, DEFAULT_SOUND,
                 Map.of(TYPE_KEY, MEMBERSHIP_RENEWED_TYPE, DUE_DATE_KEY, dueDate.toString()));
     }
 

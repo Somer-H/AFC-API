@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
@@ -22,6 +23,7 @@ public class ExpoPushDeliveryServiceImpl implements IPushDeliveryService {
 
     private static final int MAX_MESSAGES_PER_REQUEST = 100;
 
+    @Qualifier("expoPushRestClient")
     private final RestClient expoPushRestClient;
 
     @Override

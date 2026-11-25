@@ -46,7 +46,7 @@ public class PaymentEntity {
 
     @Setter(AccessLevel.PRIVATE)
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 30)
     private PaymentStatus status;
 
     @Column(nullable = false, precision = 10, scale = 2)
@@ -68,12 +68,84 @@ public class PaymentEntity {
     @Column(name = "approved_at")
     private Instant approvedAt;
 
-    public void approve(Instant approvedAt) {
+    @Setter(AccessLevel.PRIVATE)
+    @Column(name = "approved_by")
+    private Long approvedBy;
+
+    @Setter(AccessLevel.PRIVATE)
+    @Column(name = "rejected_at")
+    private Instant rejectedAt;
+
+    @Setter(AccessLevel.PRIVATE)
+    @Column(name = "rejected_by")
+    private Long rejectedBy;
+
+    @Setter(AccessLevel.PRIVATE)
+    @Column(name = "rejection_reason", length = 500)
+    private String rejectionReason;
+
+    @Setter(AccessLevel.PRIVATE)
+    @Column(name = "gateway_preference_id", length = 100)
+    private String gatewayPreferenceId;
+
+    @Setter(AccessLevel.PRIVATE)
+    @Column(name = "gateway_payment_id", length = 30)
+    private String gatewayPaymentId;
+
+    @Setter(AccessLevel.PRIVATE)
+    @Column(name = "checkout_url", length = 500)
+    private String checkoutUrl;
+
+    public void approve(Instant approvedAt, Long approvedBy) {
         setStatus(PaymentStatus.APPROVED);
         setApprovedAt(approvedAt);
+        setApprovedBy(approvedBy);
     }
 
-    public boolean isPending() {
-        return status == PaymentStatus.PENDING;
+    public void approveFromGateway(Instant approvedAt, String gatewayPaymentId) {
+        setGatewayPaymentId(gatewayPaymentId);
+        approve(approvedAt, null);
+    }
+
+    public void markGatewayRejected(String gatewayPaymentId, String detail) {
+        setStatus(PaymentStatus.GATEWAY_REJECTED);
+        setGatewayPaymentId(gatewayPaymentId);
+        setRejectionReason(detail);
+    }
+
+    public void attachCheckout(String preferenceId, String checkoutUrl) {
+        setGatewayPreferenceId(preferenceId);
+        setCheckoutUrl(checkoutUrl);
+    }
+
+    public void reject(Instant rejectedAt, Long rejectedBy, String reason) {
+        setStatus(PaymentStatus.REJECTED);
+        setRejectedAt(rejectedAt);
+        setRejectedBy(rejectedBy);
+        setRejectionReason(reason);
+    }
+
+    public void cancel() {
+        setStatus(PaymentStatus.CANCELLED);
+    }
+
+    public void awaitAppointmentConfirmation() {
+        setStatus(PaymentStatus.PENDING_APPOINTMENT);
+    }
+
+    public void confirmAppointment() {
+        setStatus(PaymentStatus.APPOINTMENT_CONFIRMED);
+    }
+
+    public void markAppointmentCancelled() {
+        setStatus(PaymentStatus.APPOINTMENT_CANCELLED);
+    }
+
+    public boolean isApproved() {
+        return status == PaymentStatus.APPROVED;
+    }
+
+    public boolean isPaidThroughGateway() {
+        return gatewayPreferenceId != null;
     }
 }

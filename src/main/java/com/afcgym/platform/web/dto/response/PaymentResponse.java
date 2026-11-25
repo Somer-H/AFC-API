@@ -8,6 +8,7 @@ import lombok.Builder;
 @Builder
 public record PaymentResponse(
         Long id,
+        String reference,
         Long memberId,
         String membershipType,
         String method,
@@ -17,5 +18,9 @@ public record PaymentResponse(
         String cardLastFour,
         LocalDate scheduledDate,
         Instant createdAt,
-        Instant approvedAt
+        Instant approvedAt,
+        Long approvedBy,
+        Instant rejectedAt,
+        Long rejectedBy,
+        String rejectionReason
 ) {}
