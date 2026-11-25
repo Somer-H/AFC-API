@@ -6,11 +6,13 @@ import com.afcgym.platform.persistance.entities.UserEntity;
 import com.afcgym.platform.persistance.repositories.IPasswordResetTokenRepository;
 import com.afcgym.platform.persistance.repositories.IUserRepository;
 import com.afcgym.platform.service.IPasswordResetService;
+import com.afcgym.platform.service.dto.PasswordResetRequestedEvent;
 import com.afcgym.platform.utils.SecureTokenGenerator;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +28,7 @@ public class PasswordResetServiceImpl implements IPasswordResetService {
     private final IUserRepository userRepository;
     private final IPasswordResetTokenRepository passwordResetTokenRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -42,6 +45,8 @@ public class PasswordResetServiceImpl implements IPasswordResetService {
                 .createdAt(now)
                 .build();
         passwordResetTokenRepository.save(resetToken);
+        eventPublisher.publishEvent(new PasswordResetRequestedEvent(
+                user.get().getEmail(), user.get().getFullName(), resetToken.getToken(), resetToken.getExpiresAt()));
     }
 
     @Override

@@ -13,15 +13,18 @@ import com.afcgym.platform.persistance.entities.UserEntity;
 import com.afcgym.platform.persistance.entities.enums.Role;
 import com.afcgym.platform.persistance.repositories.IPasswordResetTokenRepository;
 import com.afcgym.platform.persistance.repositories.IUserRepository;
+import com.afcgym.platform.service.dto.PasswordResetRequestedEvent;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 @ExtendWith(MockitoExtension.class)
@@ -35,6 +38,9 @@ class PasswordResetServiceImplTest {
 
     @Mock
     private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private PasswordResetServiceImpl passwordResetService;
@@ -61,7 +67,14 @@ class PasswordResetServiceImplTest {
 
         passwordResetService.requestReset("admin@afcgym.com");
 
-        verify(passwordResetTokenRepository).save(any(PasswordResetTokenEntity.class));
+        ArgumentCaptor<PasswordResetTokenEntity> savedToken = ArgumentCaptor.forClass(PasswordResetTokenEntity.class);
+        verify(passwordResetTokenRepository).save(savedToken.capture());
+        ArgumentCaptor<PasswordResetRequestedEvent> event = ArgumentCaptor.forClass(PasswordResetRequestedEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertEquals("admin@afcgym.com", event.getValue().email());
+        assertEquals("Administrador", event.getValue().fullName());
+        assertEquals(savedToken.getValue().getToken(), event.getValue().token());
+        assertEquals(savedToken.getValue().getExpiresAt(), event.getValue().expiresAt());
     }
 
     @Test
@@ -71,6 +84,7 @@ class PasswordResetServiceImplTest {
         passwordResetService.requestReset("ghost@afcgym.com");
 
         verify(passwordResetTokenRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test

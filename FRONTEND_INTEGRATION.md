@@ -50,7 +50,7 @@ Todo error llega con este formato, con el mensaje ya en español y listo para mo
 
 | Pantalla (frontend) | Qué llama |
 |---|---|
-| `LoginScreen` / `LoginForm` | `POST /v1/auth/login`. "¿Olvidaste tu contraseña?": `POST /v1/auth/password-resets` con `{ "email" }` y luego `POST /v1/auth/password-resets/confirm` con `{ "token", "newPassword" }` (ver "Pendientes") |
+| `LoginScreen` / `LoginForm` | `POST /v1/auth/login`. "¿Olvidaste tu contraseña?": `POST /v1/auth/password-resets` con `{ "email" }` (siempre responde `204`; al usuario le llega un correo con el código). Luego una pantalla donde pegue el código y escriba la nueva contraseña: `POST /v1/auth/password-resets/confirm` con `{ "token", "newPassword" }`. Si se configura `PASSWORD_RESET_URL` con un deep link (por ejemplo `afcapp://recuperar`), el correo trae ese enlace con `?token=...` y la app puede abrir esa pantalla con el código ya puesto |
 | `AdminDashboardScreen` | `GET /v1/dashboard/summary` (socios activos/vencidos, ingresos del mes y de los últimos meses, ventas por categoría, alertas de vencimiento y stock bajo) |
 | `MembersScreen` / `AddMemberModal` | Lista y búsqueda: `GET /v1/members?search=...&status=ACTIVE`. Alta: `POST /v1/members`. Editar: `PUT /v1/members/{id}`. Baja: `PATCH /v1/members/{id}/deactivate`. PIN o huella: `PATCH /v1/members/{id}/credentials`. Cuenta para la app del socio: `POST /v1/members/{id}/account` |
 | Renovar en recepción (`PaymentModal` del admin) | `POST /v1/members/{id}/payments` con `membershipType` y `method`: tarjeta queda aprobada al momento (pide `cardLastFour`), transferencia queda pendiente, efectivo pide `scheduledDate`. Historial: `GET /v1/members/{id}/payments`. Aprobar o rechazar una transferencia: `PATCH /v1/payments/{id}/approve` y `PATCH /v1/payments/{id}/reject` con `{ "reason" }` |
@@ -93,7 +93,7 @@ y luego compartir el archivo.
 
 ## Pendientes del lado del negocio
 
-- **Recuperación de contraseña:** el backend genera el código, pero todavía no lo envía por correo ni por SMS porque
-  falta decidir el canal (y contratar el servicio de envío). Mientras tanto, el flujo de "¿Olvidaste tu contraseña?"
-  no le sirve a un usuario real.
+- **Correo de recuperación de contraseña:** el backend ya lo envía por SMTP, pero en producción hay que dar de alta la
+  cuenta de correo que lo manda (`MAIL_HOST`, `MAIL_FROM` y compañía, ver el README). Sin eso, el código se genera y
+  no le llega a nadie.
 - **Rol Coach:** existe, pero sin permisos hasta que el negocio defina qué puede hacer un coach en la app.

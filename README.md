@@ -44,7 +44,8 @@ Para detener la aplicación pulsa el cuadro rojo de la ventana **Run**.
 ### Dependencias nuevas
 
 Si al abrir el proyecto IntelliJ marca en rojo `org.dhatim.fastexcel` (la librería que genera el Excel del corte de
-caja), abre la ventana **Maven** (derecha) y pulsa **Reload All Maven Projects** para que la descargue.
+caja) o `org.springframework.mail` (la que envía los correos de recuperación de contraseña), abre la ventana **Maven**
+(derecha) y pulsa **Reload All Maven Projects** para que las descargue.
 
 ### Si Maven falla con `PKIX path building failed`
 
@@ -56,7 +57,7 @@ Pasa cuando un antivirus o proxy inspecciona HTTPS. En IntelliJ:
 
 ### Pruebas
 
-Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 55 clases de prueba (469 pruebas) ya pasan en
+Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 57 clases de prueba (476 pruebas) ya pasan en
 este repositorio (`./mvnw test`, perfil `test`, H2 en memoria).
 
 ## Perfiles
@@ -90,6 +91,10 @@ Producción se activa con `SPRING_PROFILES_ACTIVE=prod` y estas variables de ent
 | `EXPO_ACCESS_TOKEN` | Token de acceso de Expo, solo si en el proyecto de Expo se activó "Enhanced push security" | No |
 | `EXPIRY_REMINDER_DAYS_BEFORE` | Con cuántos días de anticipación se avisa que vence la membresía (por defecto 3, de 1 a 30) | No |
 | `EXPIRY_REMINDER_CRON` | A qué hora corre el recordatorio de vencimientos, en formato cron de Spring (por defecto `0 0 9 * * *`, todos los días a las 9:00 en la zona de `APP_TIME_ZONE`) | No |
+| `MAIL_HOST`, `MAIL_PORT` | Servidor SMTP para enviar los correos de recuperación de contraseña (puerto 587 por defecto; 465 usa SSL directo). Sin `MAIL_HOST` no se envían correos | Sí, para recuperar contraseñas |
+| `MAIL_USERNAME`, `MAIL_PASSWORD` | Usuario y contraseña del servidor SMTP (en Gmail, una contraseña de aplicación) | Si el servidor pide usuario |
+| `MAIL_FROM` | Remitente de los correos, por ejemplo `AFC Gym <no-responder@afcgym.mx>` | Sí, para recuperar contraseñas |
+| `PASSWORD_RESET_URL` | Enlace que se pone en el correo de recuperación, por ejemplo el deep link de la app (`afcapp://recuperar`). El backend le agrega `?token=...`. Sin él, el correo solo trae el código | No |
 | `APP_TIME_ZONE` | Zona horaria del gimnasio (por defecto `America/Mexico_City`). La aplicación la fija al arrancar, así que "hoy", la hora de inicio de las clases, los cortes por día y el recordatorio usan la hora del gimnasio aunque el servidor esté en UTC | No |
 
 En producción Swagger y la documentación de la API quedan desactivados.
@@ -227,10 +232,39 @@ hacer un coach (por ejemplo, ver y editar las rutinas), hay que: permitir el rol
 
 ### Recuperación de contraseña
 
-`POST /v1/auth/password-resets` genera un token de 30 minutos y lo guarda en `password_reset_token`, pero **no existe
-ningún canal de envío todavía** (correo o SMS, pendiente de definir con el negocio — ver Requerimientos-AFC-Gym.docx,
-sección 5). Por ahora el token solo se puede consultar directamente en la base de datos; falta integrar el envío real
-antes de que este flujo sea usable por un socio de verdad.
+`POST /v1/auth/password-resets` con `{ "email": "..." }` genera un código de un solo uso que vence en 30 minutos, lo
+guarda en `password_reset_token` y lo manda por correo a esa dirección. Responde `204` siempre, exista o no el correo,
+para no revelar quién tiene cuenta. Con el código, `POST /v1/auth/password-resets/confirm` con
+`{ "token": "...", "newPassword": "..." }` cambia la contraseña y cierra las sesiones que estaban abiertas.
+
+El correo sale en español, en texto plano:
+
+```
+Asunto: Recupera tu contraseña de AFC Gym
+
+Hola Ana López:
+Recibimos una solicitud para cambiar la contraseña de tu cuenta de AFC Gym.
+Para elegir una nueva, abre este enlace:
+afcapp://recuperar?token=1f586c...
+Si la app te lo pide, copia este código:
+1f586c...
+Solo sirve una vez y vence a las 14:10 del 25/11/2026.
+Si no fuiste tú, ignora este correo: tu contraseña no cambia.
+```
+
+- **Se envía por SMTP**, así que sirve con cualquier proveedor: el correo del dominio, Gmail o Google Workspace (con una
+  contraseña de aplicación), Outlook/Microsoft 365, SendGrid, Amazon SES, Brevo, etc. Se configura con `MAIL_HOST`,
+  `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` y `MAIL_FROM` (ver la tabla de variables). Con el puerto 465 usa SSL
+  directo; con cualquier otro (normalmente 587) usa STARTTLS.
+- **El enlace es opcional:** si se configura `PASSWORD_RESET_URL` (por ejemplo el deep link de la app,
+  `afcapp://recuperar`, o una página web), el correo trae ese enlace con `?token=...` al final. Si no, solo trae el
+  código para copiarlo.
+- **El correo se manda después de guardar el código y en segundo plano:** la respuesta no espera al servidor de correo
+  (tarda lo mismo con un correo que existe que con uno que no), y si el servidor de correo falla, el error queda en el
+  log y la petición no se cae.
+- **Si `MAIL_HOST` o `MAIL_FROM` no están configurados**, el código se guarda igual pero no se envía, y el log avisa
+  "email is not configured". El código nunca se escribe en el log.
+- `GET /actuator/health` no revisa el servidor de correo, para que una falla del correo no marque toda la API como caída.
 
 ### Membresías y pagos
 
@@ -334,8 +368,8 @@ clases desde la app, el admin le crea una cuenta con `POST /v1/members/{id}/acco
 
 Eso crea un usuario con rol `SOCIO` ligado a esa ficha (`userId` aparece en la respuesta del socio). Con ese usuario
 y contraseña el socio entra por el mismo `POST /v1/auth/login`. Un socio solo puede tener una cuenta (`409` si ya
-tiene) y la contraseña pide al menos 8 caracteres. Si la olvida, usa la recuperación de contraseña de siempre (con la
-misma limitación: todavía no hay canal de envío).
+tiene) y la contraseña pide al menos 8 caracteres. Si la olvida, usa la recuperación de contraseña (le llega un código a
+su correo).
 
 ### Horarios, clases y capacidad
 
