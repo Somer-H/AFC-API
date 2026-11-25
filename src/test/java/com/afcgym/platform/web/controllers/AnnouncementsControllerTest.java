@@ -1,6 +1,7 @@
 package com.afcgym.platform.web.controllers;
 
 import static com.afcgym.platform.configuration.security.TestAuthentication.asRole;
+import static com.afcgym.platform.configuration.security.TestAuthentication.asRefreshedSession;
 import static com.afcgym.platform.configuration.security.TestAuthentication.asSession;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -137,6 +138,20 @@ class AnnouncementsControllerTest {
         mockMvc.perform(get("/v1/announcements/active").with(asSession(Role.SOCIO, "session-a")))
                 .andExpect(jsonPath("$.length()").value(0));
         mockMvc.perform(get("/v1/announcements/active").with(asSession(Role.SOCIO, "session-b")))
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    void givenARefreshedToken_whenListActive_thenKeepHidingWhatWasDismissedInThatSession() throws Exception {
+        long announcementId = publish("Aviso", "INFO", today, null);
+
+        mockMvc.perform(post("/v1/announcements/" + announcementId + "/dismiss")
+                        .with(asRefreshedSession(Role.SOCIO, "session-c")))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/v1/announcements/active").with(asRefreshedSession(Role.SOCIO, "session-c")))
+                .andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(get("/v1/announcements/active").with(asRefreshedSession(Role.SOCIO, "session-d")))
                 .andExpect(jsonPath("$.length()").value(1));
     }
 

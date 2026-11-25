@@ -1,6 +1,7 @@
 package com.afcgym.platform.web.controllers;
 
 import com.afcgym.platform.configuration.security.AuthenticatedUser;
+import com.afcgym.platform.configuration.security.jwt.TokenClaims;
 import com.afcgym.platform.mapper.AnnouncementMapper;
 import com.afcgym.platform.service.IAnnouncementService;
 import com.afcgym.platform.service.dto.PublishAnnouncementCommand;
@@ -56,14 +57,14 @@ public class AnnouncementsController {
     @GetMapping("/active")
     @Operation(summary = "Current announcements not dismissed in this session, most important first")
     public List<AnnouncementResponse> listCurrent(@AuthenticationPrincipal Jwt jwt) {
-        return announcementService.listCurrent(jwt.getId()).stream().map(announcementMapper::toResponse).toList();
+        return announcementService.listCurrent(TokenClaims.sessionId(jwt)).stream().map(announcementMapper::toResponse).toList();
     }
 
     @PostMapping("/{id}/dismiss")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     @Operation(summary = "Close an announcement so it does not appear again in this session")
     public void dismiss(@PathVariable Long id, @AuthenticationPrincipal Jwt jwt) {
-        announcementService.dismiss(id, jwt.getId());
+        announcementService.dismiss(id, TokenClaims.sessionId(jwt));
     }
 
     @DeleteMapping("/{id}")

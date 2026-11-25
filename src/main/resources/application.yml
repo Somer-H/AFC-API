@@ -31,7 +31,8 @@ springdoc:
 app:
   security:
     jwt-secret: ${SECRET_KEY}
-    jwt-ttl-minutes: 60
+    jwt-ttl-minutes: ${JWT_TTL_MINUTES:60}
+    session-max-hours: ${SESSION_MAX_HOURS:12}
     bcrypt-strength: 12
     allowed-origins: ${ALLOWED_ORIGINS:http://localhost:19006,http://localhost:8081}
   bootstrap-admin:

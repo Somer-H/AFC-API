@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.afcgym.platform.persistance.entities.enums.Role;
+import com.jayway.jsonpath.JsonPath;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -17,9 +18,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -44,6 +48,9 @@ class SecurityConfigurationTest {
 
     @Autowired
     private JwtEncoder jwtEncoder;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     private MockMvc mockMvc;
 
@@ -94,6 +101,38 @@ class SecurityConfigurationTest {
     void givenAnyRole_whenPostAProtectedEndpoint_thenReturnNoContent(Role role) throws Exception {
         mockMvc.perform(post("/v1/auth/logout").with(asRole(role)))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void givenACoachAccount_whenLogin_thenItCanOnlyReadItsProfileAndKeepItsSession() throws Exception {
+        jdbc.update("INSERT INTO app_user (username, full_name, email, password_hash, role) "
+                + "SELECT 'coach1', 'Coach Uno', 'coach1@afcgym.com', password_hash, 'COACH' "
+                + "FROM app_user WHERE username = 'admin'");
+        String loginResponse = mockMvc.perform(post("/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"coach1\",\"password\":\"Test-password-123\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("COACH"))
+                .andReturn().getResponse().getContentAsString();
+        String token = JsonPath.read(loginResponse, "$.token");
+
+        mockMvc.perform(get("/v1/users/me").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("COACH"));
+        mockMvc.perform(post("/v1/auth/refresh").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/v1/members").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "/v1/members", "/v1/products", "/v1/sales?from=2026-11-01&to=2026-11-30", "/v1/dashboard/summary",
+            "/v1/announcements/active", "/v1/routines/by-day", "/v1/schedule-blocks/occupancy", "/v1/payments/me",
+            "/v1/bookings/me", "/v1/audit-logs", "/v1/a-path-that-does-not-exist"})
+    void givenACoachToken_whenGetAnyModule_thenReturnForbidden(String path) throws Exception {
+        mockMvc.perform(get(path).with(asRole(Role.COACH)))
+                .andExpect(status().isForbidden());
     }
 
     @Test

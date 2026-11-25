@@ -11,7 +11,9 @@ socios (HU-07 a HU-12), Membresías y pagos (HU-13 a HU-19), Tienda e inventario
 ejercicios (HU-37 a HU-40), Anuncios (HU-41 a HU-43), Dashboard (HU-44), Notificaciones (HU-45 a HU-47), Funciones transversales (HU-48 a HU-51) y los flujos de pago
 del socio (tarjeta con Mercado Pago,
 transferencia y efectivo con cita, según el documento de alcance de pagos) — ver
-`Historias-de-Usuario-AFC-Gym.docx`.
+`Historias-de-Usuario-AFC-Gym.docx`. Además cumple los requerimientos no funcionales de `Requerimientos-AFC-Gym.docx`
+que tocan al backend: sesión que expira por inactividad (RNF-05), rol Coach previsto (RNF-02), exportación del
+historial de ventas (criterio general 6) y tiempos de respuesta medidos (RNF-08).
 
 ## Abrir y correr el proyecto en IntelliJ IDEA
 
@@ -51,7 +53,7 @@ Pasa cuando un antivirus o proxy inspecciona HTTPS. En IntelliJ:
 
 ### Pruebas
 
-Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 53 clases de prueba (427 pruebas) ya pasan en
+Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 55 clases de prueba (463 pruebas) ya pasan en
 este repositorio (`./mvnw test`, perfil `test`, H2 en memoria).
 
 ## Perfiles
@@ -69,6 +71,8 @@ Producción se activa con `SPRING_PROFILES_ACTIVE=prod` y estas variables de ent
 | `DB_URL` | Conexión a PostgreSQL | Sí |
 | `DB_USER` y `DB_PASSWORD` | Credenciales de la base de datos | Sí |
 | `SECRET_KEY` | Clave para firmar los tokens JWT (mínimo 32 caracteres, aleatoria) | Sí |
+| `JWT_TTL_MINUTES` | Minutos de inactividad tras los que se cierra la sesión (por defecto 60, de 5 a 1440) | No |
+| `SESSION_MAX_HOURS` | Horas máximas que dura una sesión aunque el usuario siga activo; después tiene que volver a entrar (por defecto 12, de 1 a 168) | No |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Contraseña del primer usuario administrador. Solo se usa si todavía no existe ningún usuario | Solo la primera vez |
 | `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_FULL_NAME`, `BOOTSTRAP_ADMIN_EMAIL` | Datos de ese primer usuario | No |
 | `ALLOWED_ORIGINS` | Direcciones del frontend permitidas por CORS, separadas por comas | Sí, con el frontend desplegado |
@@ -88,22 +92,24 @@ En producción Swagger y la documentación de la API quedan desactivados.
 
 ## Autenticación y roles
 
-La API usa tokens JWT (válidos 1 hora). El token se envía en el encabezado `Authorization: Bearer <token>`.
+La API usa tokens JWT. El token se envía en el encabezado `Authorization: Bearer <token>` y vence tras 60 minutos sin
+renovarse (ver "Sesión por inactividad" abajo).
 
-**Roles:** `ADMIN` (recepción/administración) y `SOCIO` (miembro del gimnasio).
+**Roles:** `ADMIN` (recepción/administración) y `SOCIO` (miembro del gimnasio). `COACH` está previsto (RNF-02) pero
+todavía sin permisos: ver "Rol Coach" abajo.
 
 | Endpoint | Quién puede usarlo |
 |---|---|
 | `POST /v1/auth/login` | Cualquiera (es público) |
 | `POST /v1/auth/password-resets` y `/confirm` | Cualquiera (son públicos) |
-| `POST /v1/auth/logout` | Cualquier usuario con sesión iniciada |
+| `POST /v1/auth/logout`, `POST /v1/auth/refresh` | Cualquier usuario con sesión iniciada |
 | `GET /v1/users/me` | Cualquier usuario con sesión iniciada |
 | `POST /v1/users` (crear otro admin) | Solo `ADMIN` |
 | `POST /v1/members`, `GET /v1/members`, `GET /v1/members/{id}`, `PUT /v1/members/{id}`, `PATCH /v1/members/{id}/deactivate`, `PATCH /v1/members/{id}/credentials` | Solo `ADMIN` |
 | `POST /v1/members/{id}/payments`, `GET /v1/members/{id}/payments`, `PATCH /v1/payments/{id}/approve` | Solo `ADMIN` |
 | `POST`/`GET /v1/categories`, `POST`/`GET /v1/suppliers` | Solo `ADMIN` |
 | `POST /v1/products`, `GET /v1/products`, `GET`/`PUT /v1/products/{id}`, `PATCH /v1/products/{id}/deactivate`, `POST`/`GET /v1/products/{id}/inventory-movements` | Solo `ADMIN` |
-| `POST /v1/sales`, `POST /v1/sales/stock-validation`, `GET /v1/sales`, `GET /v1/sales/{id}` | Solo `ADMIN` |
+| `POST /v1/sales`, `POST /v1/sales/stock-validation`, `GET /v1/sales`, `GET /v1/sales/export`, `GET /v1/sales/{id}` | Solo `ADMIN` |
 | `GET /v1/cash-cuts`, `GET /v1/cash-cuts/export` | Solo `ADMIN` |
 | `POST /v1/members/{id}/account` (crear la cuenta de acceso de un socio) | Solo `ADMIN` |
 | `POST`/`GET /v1/coaches` | Solo `ADMIN` |
@@ -125,6 +131,8 @@ La API usa tokens JWT (válidos 1 hora). El token se envía en el encabezado `Au
 | `POST /v1/check-ins` | Solo `ADMIN` |
 
 Cada vez que se agregue un endpoint hay que decidir qué roles lo usan en `configuration/security/SecurityConfiguration`.
+Lo que no tenga regla queda solo para `ADMIN` y `SOCIO`; un `COACH` recibe `403` en todo lo que no esté en esta tabla
+como "cualquier usuario con sesión iniciada".
 
 ### Errores y validaciones (HU-48 y HU-49)
 
@@ -169,11 +177,47 @@ entidad no tiene setters, el repositorio solo permite guardar y consultar, y no 
 Los datos sensibles (pagos, contacto) ya estaban restringidos por rol: un socio solo ve sus propias reservas y pagos,
 y todo lo de socios, pagos de recepción, corte de caja, dashboard y auditoría es solo `ADMIN`.
 
-### Cerrar sesión con JWT sin estado
+### Sesión por inactividad y cierre de sesión (RNF-05)
 
-El token es JWT sin sesión en el servidor. `POST /v1/auth/logout` guarda el `jti` del token en la tabla `jwt_blocklist`
-con su fecha de expiración; un `JwtDecoder` personalizado (`RevokedTokenValidator`) rechaza cualquier token cuyo `jti`
-esté en esa lista. No hay limpieza automática de la tabla todavía; a este tamaño no hace falta.
+Al iniciar sesión se abre una **sesión** (claim `sid`, con su hora de inicio en `auth_time`) y se entrega un token que
+vence a los `JWT_TTL_MINUTES` (60 por defecto). Mientras el usuario usa la app, el frontend pide un token nuevo de la
+misma sesión con `POST /v1/auth/refresh` (sin cuerpo, con el token actual en `Authorization`). La respuesta tiene la
+misma forma que el login:
+
+```json
+{ "token": "eyJ...", "role": "SOCIO", "expiresInSeconds": 3600 }
+```
+
+- **Si el usuario deja de usar la app** más de `JWT_TTL_MINUTES`, el token vence; la siguiente petición responde `401`
+  y el frontend lo manda al login. Eso es la expiración por inactividad.
+- **Lo que tiene que hacer el frontend:** guardar el token nuevo cada vez que llame a refresh. Una forma simple es
+  llamarlo cuando el usuario hace algo y al token le queda menos de la mitad de `expiresInSeconds`. El token anterior
+  sigue sirviendo hasta que vence, así que las peticiones que ya iban en camino no fallan.
+- **Tope de la sesión:** aunque el usuario siga activo, una sesión dura como máximo `SESSION_MAX_HOURS` (12 por
+  defecto). Cerca de ese tope el token se entrega con menos tiempo, y después refresh responde `401` "Tu sesión terminó.
+  Inicia sesión de nuevo". Así un token robado no se puede renovar para siempre.
+- Refresh vuelve a revisar al usuario: si lo desactivaron, responde `401`. Si le cambiaron el rol, el token nuevo ya
+  trae el rol nuevo.
+- **Cerrar sesión** (`POST /v1/auth/logout`) guarda el `sid` en la tabla `jwt_blocklist` hasta el tope de la sesión, y
+  `RevokedTokenValidator` rechaza cualquier token cuyo `jti` o `sid` esté ahí. Por eso el logout invalida **todos** los
+  tokens de esa sesión (el actual y los que se renovaron antes), no solo el último. Los tokens de otros dispositivos del
+  mismo usuario son otras sesiones y no se tocan.
+- Los avisos que el socio cerró (HU-42) se guardan por sesión, no por token: renovar el token no los vuelve a mostrar.
+- Renovar el token no se guarda en la auditoría (pasaría cada pocos minutos); cerrar sesión sí.
+- La tabla `jwt_blocklist` no tiene limpieza automática todavía: guarda una fila por cada cierre de sesión y se consulta
+  por llave primaria, así que su tamaño no afecta la velocidad.
+
+### Rol Coach (RNF-02)
+
+El rol `COACH` ya existe en el código y en la base de datos, pero **no tiene permisos sobre ningún módulo**, porque el
+documento de requerimientos deja "por confirmar" si el coach tendrá cuenta propia. Un usuario `COACH` puede iniciar
+sesión, ver su perfil (`GET /v1/users/me`), renovar su token y cerrar sesión; cualquier otra ruta responde `403` y queda
+en la auditoría como intento no autorizado.
+
+Hoy no hay endpoint para crear cuentas `COACH` (`POST /v1/users` solo crea admins). Cuando el negocio decida qué puede
+hacer un coach (por ejemplo, ver y editar las rutinas), hay que: permitir el rol en `POST /v1/users`, agregar
+`Role.COACH` a las reglas de esos endpoints en `SecurityConfiguration` y decidir si el coach se liga a un registro de
+`/v1/coaches` (hoy los coaches son solo un catálogo con nombre y foto).
 
 ### Recuperación de contraseña
 
@@ -241,6 +285,12 @@ mismo endpoint genérico (`PATCH /v1/payments/{id}/approve`), en vez de acoplar 
 - `GET /v1/sales?from=2026-11-01&to=2026-11-17` (HU-28): `from` y `to` son obligatorios (`400` si faltan, o si `from`
   es posterior a `to`) y ambos días se incluyen completos. Cada venta trae folio, productos, total y método de pago.
 - `GET /v1/sales/{id}` da un ticket con sus renglones.
+- `GET /v1/sales/export?from=2026-11-01&to=2026-11-30` descarga el mismo historial como Excel
+  (`ventas_2026-11-01_2026-11-30.xlsx`), con las mismas reglas de fechas. Arriba trae los filtros aplicados (desde,
+  hasta, cuándo se generó), cuántas ventas hubo y el total vendido; luego una fila por venta con folio, fecha y hora,
+  método de pago, productos (`2 x Proteína, 1 x Shaker`), quién atendió y total, y al final el total. Si no hubo ventas
+  lo dice en el archivo en lugar de dejarlo vacío. Esto cubre el criterio general 6 de los requerimientos ("los
+  reportes de corte de caja y de ventas conservan los filtros aplicados y son legibles al exportarse").
 
 ### Caja y corte de caja
 
@@ -386,8 +436,9 @@ ejercicios con series, repeticiones, descanso y video. Si ese día no tiene ruti
 mantenimiento, informativos y promociones, y dentro de cada tipo los más recientes.
 
 Para que un aviso cerrado no vuelva a salir en la misma sesión, la app llama a `POST /v1/announcements/{id}/dismiss`
-cuando el socio lo cierra. El cierre se guarda con el identificador del token: aunque cierre y abra la app no reaparece,
-y al iniciar sesión de nuevo vuelve a mostrarse si sigue vigente.
+cuando el socio lo cierra. El cierre se guarda con el identificador de la sesión: aunque cierre y abra la app no reaparece,
+y al iniciar sesión de nuevo vuelve a mostrarse si sigue vigente. Renovar el token (`POST /v1/auth/refresh`) no cuenta
+como sesión nueva.
 
 **Eliminar (HU-43)**: `DELETE /v1/announcements/{id}`, solo admin. Se borra de verdad, junto con sus cierres, y deja de
 mostrarse a los socios de inmediato.
@@ -559,6 +610,45 @@ exhibición. La liga de pago vence a las 24 horas.
 
 El usuario `admin` con contraseña `Admin12345!` existe **solo en desarrollo** (perfil `dev`, base H2 local). Nunca se usa en producción.
 
+## Rendimiento (RNF-08)
+
+El requerimiento pide que las consultas habituales respondan en 3 segundos o menos. Se midió con el jar de producción
+sobre una base H2 en archivo (modo PostgreSQL) cargada con un volumen mayor al de un gimnasio real después de varios
+años: 5,000 socios, 300,000 asistencias, 60,200 pagos, 500 productos, 60,000 ventas con 120,000 renglones, 50,000
+movimientos de inventario, 100,000 registros de auditoría y 50,000 reservas. Cada consulta se repitió 10 veces después
+de calentar.
+
+| Consulta | Mediana | Peor caso |
+|---|---|---|
+| Dashboard | 196 ms | 296 ms |
+| Socios: lista completa (5,000) | 60 ms | 84 ms |
+| Socios: búsqueda por nombre / filtro vencidos | 24 / 42 ms | 48 / 47 ms |
+| Historial de pagos de un socio | 17 ms | 21 ms |
+| Productos: catálogo, búsqueda, stock bajo | 16 a 19 ms | 41 ms |
+| Ventas del mes / exportarlas a Excel | 49 / 74 ms | 64 / 88 ms |
+| Corte de caja mensual / exportarlo a Excel | 19 / 26 ms | 43 / 31 ms |
+| Aforo del día, horarios, rutinas, agenda de citas | 12 a 20 ms | 26 ms |
+| Auditoría (página de 50) | 16 ms | 21 ms |
+| Socio: mis pagos, anuncios vigentes | 12 a 14 ms | 36 ms |
+| Renovar membresía (calcula la racha de asistencia) | 19 ms | 32 ms |
+| Registrar una venta | 19 ms | 21 ms |
+| Login | 425 ms | 450 ms |
+| Renovar token | 11 ms | 31 ms |
+| Fuera de lo habitual: ventas de 11 meses / exportarlas | 258 / 334 ms | 315 / 371 ms |
+
+Con 20 clientes a la vez haciendo 200 consultas mezcladas (dashboard, socios, ventas, productos, aforo, corte): mediana
+157 ms, 95 % por debajo de 481 ms y la más lenta 640 ms. Todo queda muy por debajo de los 3 segundos.
+
+- El login tarda ~0.4 s a propósito: la contraseña se compara con BCrypt costo 12, que es lento para que adivinar
+  contraseñas sea caro.
+- La medición fue en H2 porque en esta máquina no hay PostgreSQL. H2 crea índices para las llaves foráneas por su
+  cuenta y PostgreSQL no, por eso `V13__query_indexes.sql` agrega los índices de las columnas por las que se filtra
+  (vencimiento y alta de socios, asistencias por socio, pagos aprobados por fecha, movimientos por producto, productos
+  por categoría y proveedor, citas por socio). Conviene repetir la medición en el servidor de producción.
+- La búsqueda de socios por nombre recorre la tabla completa (busca el texto en cualquier parte del nombre, y eso no
+  aprovecha un índice normal). Con 5,000 socios tarda 24 ms; solo con cientos de miles valdría la pena un índice de
+  texto (`pg_trgm`).
+
 ## Base de datos y migraciones
 
 El esquema lo crea Flyway al arrancar (`src/main/resources/db/migration`); Hibernate solo lo valida.
@@ -574,9 +664,11 @@ Una migración ya aplicada nunca se edita: se crea una nueva (`V2__description.s
 | `V6__schedules.sql` | Tablas `coach`, `schedule_block` y `booking`, y la columna `member.user_id` que liga a un socio con su cuenta de acceso |
 | `V7__routines.sql` | Tablas `routine` (una por día de la semana) y `exercise` (con su URL o archivo de video, nunca ambos) |
 | `V8__announcements.sql` | Tablas `announcement` y `announcement_dismissal` (qué avisos cerró cada sesión) |
-| `V11__audit_log.sql` | Tabla `audit_log` (historial de cambios del admin e intentos no autorizados) |
-| `V10__payment_flows.sql` | Nuevos estados de `payment`, quién aprobó o rechazó, motivo de rechazo, datos de Mercado Pago (preferencia, id del cobro, liga de pago) y la tabla `payment_appointment` (citas para pagar en efectivo) |
 | `V9__push_notifications.sql` | Tablas `push_token` (dispositivos de cada socio, un token no se repite) y `expiry_reminder` (qué recordatorio de vencimiento ya se envió, uno por socio y fecha) |
+| `V10__payment_flows.sql` | Nuevos estados de `payment`, quién aprobó o rechazó, motivo de rechazo, datos de Mercado Pago (preferencia, id del cobro, liga de pago) y la tabla `payment_appointment` (citas para pagar en efectivo) |
+| `V11__audit_log.sql` | Tabla `audit_log` (historial de cambios del admin e intentos no autorizados) |
+| `V12__coach_role.sql` | Permite el rol `COACH` en `app_user` y en `audit_log` |
+| `V13__query_indexes.sql` | Índices para las consultas frecuentes en PostgreSQL (ver "Rendimiento") |
 
 El estado del socio (`ACTIVE`/`EXPIRED`/`TO_PURGE`) **no se guarda en la base de datos**: se calcula siempre al vuelo
 a partir de `due_date`, como pide Requerimientos-AFC-Gym.docx ("nunca se confía en un valor enviado por el cliente").
@@ -588,7 +680,7 @@ que diste (`AaaS_API`): `persistance` (`entities` + `repositories`), `service` (
 `mapper`, `web` (`controllers` + `dto`), `configuration` (incl. `configuration.security`), `exception` y `utils`.
 El detalle completo está en `.claude/skills/backend-conventions/SKILL.md`.
 
-Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/auth/password-resets`,
+Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `POST /v1/auth/password-resets`,
 `POST /v1/auth/password-resets/confirm`, `POST /v1/users`, `GET /v1/users/me`, `POST /v1/members`, `GET /v1/members`,
 `GET /v1/members/{id}`, `PUT /v1/members/{id}`, `PATCH /v1/members/{id}/deactivate`,
 `PATCH /v1/members/{id}/credentials`, `POST /v1/members/{id}/payments`, `GET /v1/members/{id}/payments`,
@@ -596,7 +688,7 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
 `GET /v1/suppliers`, `POST /v1/products`, `GET /v1/products`, `GET /v1/products/{id}`, `PUT /v1/products/{id}`,
 `PATCH /v1/products/{id}/deactivate`, `POST /v1/products/{id}/inventory-movements`,
 `GET /v1/products/{id}/inventory-movements`, `POST /v1/sales/stock-validation`, `POST /v1/sales`, `GET /v1/sales`,
-`GET /v1/sales/{id}`, `GET /v1/cash-cuts`, `GET /v1/cash-cuts/export`, `POST /v1/members/{id}/account`,
+`GET /v1/sales/export`, `GET /v1/sales/{id}`, `GET /v1/cash-cuts`, `GET /v1/cash-cuts/export`, `POST /v1/members/{id}/account`,
 `POST /v1/coaches`, `GET /v1/coaches`, `POST /v1/schedule-blocks`, `GET /v1/schedule-blocks`,
 `GET /v1/schedule-blocks/occupancy`, `GET /v1/schedule-blocks/{id}`, `PUT /v1/schedule-blocks/{id}`,
 `PATCH /v1/schedule-blocks/{id}/activate`, `PATCH /v1/schedule-blocks/{id}/deactivate`, `POST /v1/bookings`,
@@ -626,7 +718,7 @@ Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/logout`, `POST /v1/aut
   alta hace un guardado interno en dos pasos (no expuesto en la API, el cliente solo ve una llamada).
 - La venta usa los mismos métodos de pago que las membresías (`CARD`, `SPEI`, `CASH`), pero en la tienda la venta se
   da por cobrada en el momento: no hay estado `PENDING` ni aprobación posterior como en los pagos de membresía.
-- El HU-27 menciona a "recepción" como actor; como solo existen los roles `ADMIN` y `SOCIO`, vender es de `ADMIN`.
+- El HU-27 menciona a "recepción" como actor; como los roles con permisos son `ADMIN` y `SOCIO`, vender es de `ADMIN`.
 - Vender más de lo que hay en stock, o un producto dado de baja, responde `409` (conflicto con el estado actual del
   inventario), no `400`: la petición está bien formada, lo que no alcanza es el stock.
 - **El corte de caja solo reporta ingresos.** El frontend muestra "egresos" y "utilidad" con números fijos, pero no

@@ -22,6 +22,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.web.util.HtmlUtils;
 
 class CashCutWorkbookWriterTest {
 
@@ -54,6 +55,7 @@ class CashCutWorkbookWriterTest {
         assertTrue(content.contains("15/11/2026"));
         assertTrue(content.contains("17/11/2026 18:30"));
         assertTrue(content.contains("Ingresos por tienda"));
+        assertTrue(content.contains("Categoría"));
         assertTrue(content.contains("Efectivo"));
         assertTrue(content.contains("Transferencia (SPEI)"));
         assertFalse(content.contains("Ingresos por membresías"));
@@ -73,6 +75,6 @@ class CashCutWorkbookWriterTest {
                 }
             }
         }
-        return content.toString();
+        return HtmlUtils.htmlUnescape(content.toString());
     }
 }

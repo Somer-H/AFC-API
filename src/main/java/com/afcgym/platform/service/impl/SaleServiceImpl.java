@@ -7,23 +7,33 @@ import com.afcgym.platform.persistance.entities.InventoryMovementEntity;
 import com.afcgym.platform.persistance.entities.ProductEntity;
 import com.afcgym.platform.persistance.entities.SaleEntity;
 import com.afcgym.platform.persistance.entities.SaleItemEntity;
+import com.afcgym.platform.persistance.entities.UserEntity;
 import com.afcgym.platform.persistance.entities.enums.MovementType;
 import com.afcgym.platform.persistance.repositories.IInventoryMovementRepository;
 import com.afcgym.platform.persistance.repositories.IProductRepository;
 import com.afcgym.platform.persistance.repositories.ISaleRepository;
+import com.afcgym.platform.persistance.repositories.IUserRepository;
 import com.afcgym.platform.service.ISaleService;
+import com.afcgym.platform.service.dto.ExportedFile;
 import com.afcgym.platform.service.dto.RegisterSaleCommand;
 import com.afcgym.platform.service.dto.SaleLineCommand;
+import com.afcgym.platform.service.dto.SalesReport;
+import com.afcgym.platform.service.dto.SalesReportLine;
+import com.afcgym.platform.utils.SalesWorkbookWriter;
 import com.afcgym.platform.utils.SecureTokenGenerator;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +48,7 @@ public class SaleServiceImpl implements ISaleService {
     private final ISaleRepository saleRepository;
     private final IProductRepository productRepository;
     private final IInventoryMovementRepository inventoryMovementRepository;
+    private final IUserRepository userRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -115,6 +126,32 @@ public class SaleServiceImpl implements ISaleService {
 
     @Override
     @Transactional(readOnly = true)
+    public ExportedFile export(LocalDate from, LocalDate to) {
+        List<SaleEntity> sales = listByDateRange(from, to);
+        Set<Long> cashierIds = sales.stream()
+                .map(SaleEntity::getCashierId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, String> cashierNames = userRepository.findAllById(cashierIds).stream()
+                .collect(Collectors.toMap(UserEntity::getId, UserEntity::getFullName));
+        ZoneId zone = ZoneId.systemDefault();
+        List<SalesReportLine> lines = sales.stream()
+                .map(sale -> new SalesReportLine(
+                        sale.getFolio(),
+                        LocalDateTime.ofInstant(sale.getCreatedAt(), zone),
+                        sale.getPaymentMethod(),
+                        describeItems(sale.getItems()),
+                        cashierNames.getOrDefault(sale.getCashierId(), ""),
+                        sale.getTotal()))
+                .toList();
+        BigDecimal total = sales.stream().map(SaleEntity::getTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return new ExportedFile(
+                SalesWorkbookWriter.fileName(from, to),
+                SalesWorkbookWriter.write(new SalesReport(from, to, lines, total), LocalDateTime.now(zone)));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public SaleEntity getById(Long id) {
         return saleRepository.findWithItemsById(id)
                 .orElseThrow(() -> new NotFoundException("No se encontró la venta solicitada"));
@@ -145,6 +182,12 @@ public class SaleServiceImpl implements ISaleService {
             throw new ConflictException(
                     "Stock insuficiente para " + product.getName() + ": disponible " + product.getStock());
         }
+    }
+
+    private String describeItems(List<SaleItemEntity> items) {
+        return items.stream()
+                .map(item -> item.getQuantity() + " x " + item.getProductName())
+                .collect(Collectors.joining(", "));
     }
 
     private NotFoundException productNotFound() {

@@ -9,7 +9,7 @@ import com.afcgym.platform.persistance.repositories.IPaymentRepository;
 import com.afcgym.platform.persistance.repositories.ISaleRepository;
 import com.afcgym.platform.service.ICashCutService;
 import com.afcgym.platform.service.dto.CashCutCategory;
-import com.afcgym.platform.service.dto.CashCutExport;
+import com.afcgym.platform.service.dto.ExportedFile;
 import com.afcgym.platform.service.dto.CashCutPeriod;
 import com.afcgym.platform.service.dto.CashCutReport;
 import com.afcgym.platform.service.dto.PaymentMethodBreakdown;
@@ -107,9 +107,9 @@ public class CashCutServiceImpl implements ICashCutService {
 
     @Override
     @Transactional(readOnly = true)
-    public CashCutExport export(CashCutPeriod period, CashCutCategory category, LocalDate reference) {
+    public ExportedFile export(CashCutPeriod period, CashCutCategory category, LocalDate reference) {
         CashCutReport report = generate(period, category, reference);
-        return new CashCutExport(
+        return new ExportedFile(
                 CashCutWorkbookWriter.fileName(report),
                 CashCutWorkbookWriter.write(report, LocalDateTime.now()));
     }

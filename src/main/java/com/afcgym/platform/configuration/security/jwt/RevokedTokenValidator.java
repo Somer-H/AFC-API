@@ -1,6 +1,9 @@
 package com.afcgym.platform.configuration.security.jwt;
 
 import com.afcgym.platform.persistance.repositories.IJwtBlocklistRepository;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Stream;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
@@ -16,8 +19,10 @@ public class RevokedTokenValidator implements OAuth2TokenValidator<Jwt> {
 
     @Override
     public OAuth2TokenValidatorResult validate(Jwt token) {
-        String jti = token.getId();
-        if (jti != null && blocklistRepository.existsById(jti)) {
+        List<String> identifiers = Stream.of(token.getId(), token.getClaimAsString(TokenClaims.SESSION_ID))
+                .filter(Objects::nonNull)
+                .toList();
+        if (!identifiers.isEmpty() && blocklistRepository.existsByJtiIn(identifiers)) {
             return OAuth2TokenValidatorResult.failure(
                     new OAuth2Error("invalid_token", "El token fue invalidado por un cierre de sesión", null));
         }

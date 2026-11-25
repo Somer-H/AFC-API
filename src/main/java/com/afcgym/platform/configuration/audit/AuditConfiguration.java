@@ -13,6 +13,8 @@ public class AuditConfiguration implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(auditInterceptor).addPathPatterns("/v1/**");
+        registry.addInterceptor(auditInterceptor)
+                .addPathPatterns("/v1/**")
+                .excludePathPatterns("/v1/auth/refresh");
     }
 }

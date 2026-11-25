@@ -1,6 +1,7 @@
 package com.afcgym.platform.configuration.security;
 
 import com.afcgym.platform.configuration.security.jwt.RevokedTokenValidator;
+import com.afcgym.platform.configuration.security.jwt.TokenClaims;
 import com.afcgym.platform.persistance.entities.enums.Role;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import java.nio.charset.StandardCharsets;
@@ -44,7 +45,6 @@ public class SecurityConfiguration {
 
     private static final String HMAC_ALGORITHM = "HmacSHA256";
     private static final int MINIMUM_SECRET_BYTES = 32;
-    private static final String ROLE_CLAIM = "role";
     private static final String ROLE_AUTHORITY_PREFIX = "ROLE_";
 
     private static final String[] PUBLIC_PATHS = {
@@ -74,6 +74,9 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/v1/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/v1/auth/password-resets").permitAll()
                         .requestMatchers(HttpMethod.POST, "/v1/auth/password-resets/confirm").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/v1/auth/refresh").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/v1/auth/logout").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/v1/users/me").authenticated()
                         .requestMatchers(PUBLIC_PATHS).permitAll()
                         .requestMatchers(HttpMethod.GET, "/v1/exercise-videos/*").permitAll()
                         .requestMatchers(HttpMethod.POST, "/v1/payment-webhooks/mercado-pago").permitAll()
@@ -110,6 +113,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.POST, "/v1/sales/stock-validation").hasRole(Role.ADMIN.name())
                         .requestMatchers(HttpMethod.POST, "/v1/sales").hasRole(Role.ADMIN.name())
                         .requestMatchers(HttpMethod.GET, "/v1/sales").hasRole(Role.ADMIN.name())
+                        .requestMatchers(HttpMethod.GET, "/v1/sales/export").hasRole(Role.ADMIN.name())
                         .requestMatchers(HttpMethod.GET, "/v1/sales/*").hasRole(Role.ADMIN.name())
                         .requestMatchers(HttpMethod.GET, "/v1/cash-cuts").hasRole(Role.ADMIN.name())
                         .requestMatchers(HttpMethod.GET, "/v1/cash-cuts/export").hasRole(Role.ADMIN.name())
@@ -143,7 +147,7 @@ public class SecurityConfiguration {
                         .requestMatchers(HttpMethod.GET, "/v1/audit-logs").hasRole(Role.ADMIN.name())
                         .requestMatchers(HttpMethod.POST, "/v1/push-tokens").hasRole(Role.SOCIO.name())
                         .requestMatchers(HttpMethod.POST, "/v1/check-ins").hasRole(Role.ADMIN.name())
-                        .anyRequest().authenticated())
+                        .anyRequest().hasAnyRole(Role.ADMIN.name(), Role.SOCIO.name()))
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint(authenticationEntryPoint)
                         .accessDeniedHandler(accessDeniedHandler))
@@ -178,7 +182,7 @@ public class SecurityConfiguration {
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
         JwtGrantedAuthoritiesConverter authoritiesConverter = new JwtGrantedAuthoritiesConverter();
-        authoritiesConverter.setAuthoritiesClaimName(ROLE_CLAIM);
+        authoritiesConverter.setAuthoritiesClaimName(TokenClaims.ROLE);
         authoritiesConverter.setAuthorityPrefix(ROLE_AUTHORITY_PREFIX);
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);

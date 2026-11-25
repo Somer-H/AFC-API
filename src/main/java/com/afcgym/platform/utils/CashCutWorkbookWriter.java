@@ -1,6 +1,5 @@
 package com.afcgym.platform.utils;
 
-import com.afcgym.platform.persistance.entities.enums.PaymentMethod;
 import com.afcgym.platform.service.dto.CashCutCategory;
 import com.afcgym.platform.service.dto.CashCutPeriod;
 import com.afcgym.platform.service.dto.CashCutReport;
@@ -73,7 +72,7 @@ public final class CashCutWorkbookWriter {
             }
             row++;
             for (PaymentMethodBreakdown breakdown : report.paymentMethods()) {
-                sheet.value(row, 0, methodLabel(breakdown.method()));
+                sheet.value(row, 0, PaymentMethodLabels.spanish(breakdown.method()));
                 sheet.value(row, 1, breakdown.amount());
                 sheet.style(row, 1).format(MONEY_FORMAT).set();
                 sheet.value(row, 2, breakdown.percentage());
@@ -127,14 +126,6 @@ public final class CashCutWorkbookWriter {
             case MEMBERSHIPS -> "membresias";
             case STORE -> "tienda";
             case ALL -> "todo";
-        };
-    }
-
-    private static String methodLabel(PaymentMethod method) {
-        return switch (method) {
-            case CASH -> "Efectivo";
-            case CARD -> "Tarjeta";
-            case SPEI -> "Transferencia (SPEI)";
         };
     }
 }

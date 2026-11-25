@@ -44,6 +44,28 @@ class DatabaseSchemaTests {
     }
 
     @Test
+    void givenTheCoachRole_whenInsertingAUserAndAnAuditEntry_thenStoreBoth() {
+        jdbc.update("INSERT INTO app_user (username, full_name, email, password_hash, role) "
+                + "VALUES ('coach1', 'Coach Uno', 'coach1@afcgym.com', 'hash', 'COACH')");
+        jdbc.update("INSERT INTO audit_log (actor_role, action, http_method, path, outcome, response_status) "
+                + "VALUES ('COACH', 'AccessDenied', 'GET', '/v1/members', 'DENIED', 403)");
+
+        assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM app_user WHERE role = 'COACH'", Long.class) > 0);
+    }
+
+    @Test
+    void givenTheMigrations_whenTheApplicationStarts_thenTheQueryIndexesExist() {
+        List<String> indexes = jdbc.queryForList(
+                "SELECT LOWER(index_name) FROM information_schema.indexes WHERE LOWER(table_schema) = 'public'",
+                String.class);
+        for (String index : List.of("ix_member_due_date", "ix_member_created_at", "ix_check_in_member_checked_in_at",
+                "ix_payment_status_approved_at", "ix_payment_appointment_member_id",
+                "ix_inventory_movement_product_created_at", "ix_product_category_id", "ix_product_supplier_id")) {
+            assertTrue(indexes.contains(index), "Missing index: " + index);
+        }
+    }
+
+    @Test
     void givenAnInvalidMethod_whenInsertingACheckIn_thenThrowDataIntegrityViolationException() {
         long memberId = insertMember("Ana Test");
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(

@@ -2,10 +2,13 @@ package com.afcgym.platform.web.controllers;
 
 import static com.afcgym.platform.configuration.security.TestAuthentication.asRole;
 import static com.afcgym.platform.configuration.security.TestAuthentication.asUser;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -172,6 +175,36 @@ class SalesControllerTest {
                         .with(asRole(Role.ADMIN)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("La fecha inicial no puede ser posterior a la final"));
+    }
+
+    @Test
+    void givenARegisteredSale_whenExportTodaysRange_thenDownloadAnExcelNamedAfterTheRange() throws Exception {
+        long wheyId = createProduct("SKU-WHEY", "Whey Protein", 10);
+        long shakerId = createProduct("SKU-SHAKER", "Shaker", 5);
+        registerSale(saleBody(wheyId, 1, shakerId, 1, "CARD"));
+        String today = LocalDate.now().toString();
+
+        mockMvc.perform(get("/v1/sales/export").param("from", today).param("to", today).with(asRole(Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .andExpect(header().string("Content-Disposition",
+                        containsString("ventas_" + today + "_" + today + ".xlsx")));
+    }
+
+    @Test
+    void givenASocioToken_whenExportSales_thenReturnForbidden() throws Exception {
+        mockMvc.perform(get("/v1/sales/export")
+                        .param("from", "2026-11-01")
+                        .param("to", "2026-11-30")
+                        .with(asRole(Role.SOCIO)))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void givenNoEndDate_whenExportSales_thenReturnBadRequestNamingTheParameter() throws Exception {
+        mockMvc.perform(get("/v1/sales/export").param("from", "2026-11-01").with(asRole(Role.ADMIN)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Falta el parámetro obligatorio to"));
     }
 
     @Test

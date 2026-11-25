@@ -3,7 +3,7 @@ package com.afcgym.platform.web.controllers;
 import com.afcgym.platform.mapper.CashCutMapper;
 import com.afcgym.platform.service.ICashCutService;
 import com.afcgym.platform.service.dto.CashCutCategory;
-import com.afcgym.platform.service.dto.CashCutExport;
+import com.afcgym.platform.service.dto.ExportedFile;
 import com.afcgym.platform.service.dto.CashCutPeriod;
 import com.afcgym.platform.web.dto.response.CashCutResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -47,7 +47,7 @@ public class CashCutsController {
             @RequestParam CashCutPeriod period,
             @RequestParam CashCutCategory category,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        CashCutExport export = cashCutService.export(period, category, date);
+        ExportedFile export = cashCutService.export(period, category, date);
         return ResponseEntity.ok()
                 .contentType(XLSX)
                 .header(HttpHeaders.CONTENT_DISPOSITION,
