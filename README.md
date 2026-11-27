@@ -721,7 +721,6 @@ a partir de `due_date`, como pide Requerimientos-AFC-Gym.docx ("nunca se confía
 Todo el código se organiza por capa técnica (no por feature), calcando carpeta por carpeta el proyecto de referencia
 que diste (`AaaS_API`): `persistance` (`entities` + `repositories`), `service` (+ `service.dto`, `service.impl`),
 `mapper`, `web` (`controllers` + `dto`), `configuration` (incl. `configuration.security`), `exception` y `utils`.
-El detalle completo está en `.claude/skills/backend-conventions/SKILL.md`.
 
 Endpoints actuales: `POST /v1/auth/login`, `POST /v1/auth/refresh`, `POST /v1/auth/logout`, `POST /v1/auth/password-resets`,
 `POST /v1/auth/password-resets/confirm`, `POST /v1/users`, `GET /v1/users/me`, `POST /v1/members`, `GET /v1/members`,
