@@ -176,6 +176,31 @@ class AuthServiceImplTest {
     }
 
     @Test
+    void givenAPasswordChangedAfterTheSessionStarted_whenRefresh_thenThrowUnauthorizedException() {
+        Instant sessionStartedAt = Instant.now().minus(2, ChronoUnit.HOURS).truncatedTo(ChronoUnit.SECONDS);
+        activeUser.changePassword("new-hash", Instant.now().minus(1, ChronoUnit.HOURS));
+        when(properties.sessionMaxHours()).thenReturn(12L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(activeUser));
+
+        assertThrows(UnauthorizedException.class,
+                () -> authService.refresh(sessionToken("session-1", sessionStartedAt, 1L)));
+
+        verify(jwtEncoder, never()).encode(any());
+    }
+
+    @Test
+    void givenAPasswordChangedBeforeTheSessionStarted_whenRefresh_thenIssueANewToken() {
+        Instant sessionStartedAt = Instant.now().minus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.SECONDS);
+        activeUser.changePassword("new-hash", Instant.now().minus(2, ChronoUnit.HOURS));
+        when(properties.jwtTtlMinutes()).thenReturn(60L);
+        when(properties.sessionMaxHours()).thenReturn(12L);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(activeUser));
+        when(jwtEncoder.encode(any(JwtEncoderParameters.class))).thenReturn(encodedToken());
+
+        assertEquals("token-value", authService.refresh(sessionToken("session-1", sessionStartedAt, 1L)).token());
+    }
+
+    @Test
     void givenATokenWithoutSession_whenRefresh_thenThrowUnauthorizedException() {
         Jwt legacyToken = Jwt.withTokenValue("legacy-token")
                 .header("alg", "HS256")

@@ -204,6 +204,21 @@ class PaymentServiceImplTest {
     }
 
     @Test
+    void givenACashPaymentWithAnAcceptedAppointment_whenApprove_thenCompleteTheAppointment() {
+        PaymentEntity cash = payment(10L, PaymentMethod.CASH, PaymentStatus.APPOINTMENT_CONFIRMED);
+        PaymentAppointmentEntity accepted = appointment(10L, AppointmentStatus.ACCEPTED);
+        when(paymentRepository.findWithLockById(10L)).thenReturn(Optional.of(cash));
+        when(appointmentRepository.findByPaymentIdAndStatusIn(10L,
+                List.of(AppointmentStatus.PENDING, AppointmentStatus.ACCEPTED))).thenReturn(List.of(accepted));
+
+        paymentService.approve(10L, 99L);
+
+        assertEquals(AppointmentStatus.COMPLETED, accepted.getStatus());
+        assertEquals(99L, accepted.getDecidedBy());
+        verify(memberService).renew(1L, MembershipType.MONTHLY);
+    }
+
+    @Test
     void givenAnAlreadyApprovedPayment_whenApprove_thenThrowBadRequestException() {
         when(paymentRepository.findWithLockById(11L))
                 .thenReturn(Optional.of(payment(11L, PaymentMethod.CARD, PaymentStatus.APPROVED)));
@@ -312,6 +327,7 @@ class PaymentServiceImplTest {
     @Test
     void givenACashRenewalInThePast_whenStartForMember_thenThrowBadRequestException() {
         when(memberRepository.findByUserId(10L)).thenReturn(Optional.of(existingMember));
+        when(memberRepository.findWithLockById(1L)).thenReturn(Optional.of(existingMember));
         StartMemberPaymentCommand command = new StartMemberPaymentCommand(
                 MembershipType.MONTHLY, PaymentMethod.CASH, LocalDateTime.now().minusHours(1));
 
@@ -325,6 +341,7 @@ class PaymentServiceImplTest {
     @Test
     void givenACashRenewalTooFarAhead_whenStartForMember_thenThrowBadRequestException() {
         when(memberRepository.findByUserId(10L)).thenReturn(Optional.of(existingMember));
+        when(memberRepository.findWithLockById(1L)).thenReturn(Optional.of(existingMember));
         StartMemberPaymentCommand command = new StartMemberPaymentCommand(
                 MembershipType.MONTHLY, PaymentMethod.CASH, LocalDateTime.now().plusDays(31));
 
@@ -336,18 +353,21 @@ class PaymentServiceImplTest {
     @Test
     void givenAnOpenPayment_whenStartForMember_thenThrowConflictException() {
         when(memberRepository.findByUserId(10L)).thenReturn(Optional.of(existingMember));
+        when(memberRepository.findWithLockById(1L)).thenReturn(Optional.of(existingMember));
         when(paymentRepository.existsByMemberIdAndStatusIn(1L, PaymentStatus.openStatuses())).thenReturn(true);
 
         ConflictException exception = assertThrows(ConflictException.class, () -> paymentService.startForMember(
                 new StartMemberPaymentCommand(MembershipType.MONTHLY, PaymentMethod.SPEI, null), socio));
 
         verify(paymentRepository, never()).save(any());
+        verify(memberRepository).findWithLockById(1L);
         assertEquals("Ya tienes un pago en proceso. Termínalo o cancélalo antes de iniciar otro", exception.getMessage());
     }
 
     @Test
     void givenMercadoPagoIsNotConfigured_whenStartACardRenewal_thenThrowServiceUnavailableException() {
         when(memberRepository.findByUserId(10L)).thenReturn(Optional.of(existingMember));
+        when(memberRepository.findWithLockById(1L)).thenReturn(Optional.of(existingMember));
         when(paymentGatewayService.isConfigured()).thenReturn(false);
 
         assertThrows(ServiceUnavailableException.class, () -> paymentService.startForMember(
@@ -541,6 +561,7 @@ class PaymentServiceImplTest {
 
     private void givenAMemberWithoutOpenPayments() {
         when(memberRepository.findByUserId(10L)).thenReturn(Optional.of(existingMember));
+        when(memberRepository.findWithLockById(1L)).thenReturn(Optional.of(existingMember));
         when(paymentRepository.existsByMemberIdAndStatusIn(1L, PaymentStatus.openStatuses())).thenReturn(false);
         when(checkInRepository.findByMemberId(1L)).thenReturn(List.of());
     }

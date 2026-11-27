@@ -54,6 +54,19 @@ class DatabaseSchemaTests {
     }
 
     @Test
+    void givenACompletedAppointment_whenInserting_thenStoreIt() {
+        long memberId = insertMember("Socio Cita");
+        jdbc.update("INSERT INTO payment (member_id, membership_type, method, status, amount) "
+                + "VALUES (?, 'MONTHLY', 'CASH', 'APPROVED', 500)", memberId);
+        long paymentId = jdbc.queryForObject("SELECT MAX(id) FROM payment", Long.class);
+        jdbc.update("INSERT INTO payment_appointment (payment_id, member_id, scheduled_at, status) "
+                + "VALUES (?, ?, CURRENT_TIMESTAMP, 'COMPLETED')", paymentId, memberId);
+
+        assertTrue(jdbc.queryForObject(
+                "SELECT COUNT(*) FROM payment_appointment WHERE status = 'COMPLETED'", Long.class) > 0);
+    }
+
+    @Test
     void givenTheMigrations_whenTheApplicationStarts_thenTheQueryIndexesExist() {
         List<String> indexes = jdbc.queryForList(
                 "SELECT LOWER(index_name) FROM information_schema.indexes WHERE LOWER(table_schema) = 'public'",

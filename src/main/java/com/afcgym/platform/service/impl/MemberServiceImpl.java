@@ -89,6 +89,9 @@ public class MemberServiceImpl implements IMemberService {
     public MemberEntity deactivate(Long id) {
         MemberEntity member = getById(id);
         member.deactivate();
+        if (member.getUserId() != null) {
+            userRepository.findById(member.getUserId()).ifPresent(UserEntity::deactivate);
+        }
         return member;
     }
 

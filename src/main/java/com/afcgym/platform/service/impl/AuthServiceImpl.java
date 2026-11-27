@@ -61,6 +61,7 @@ public class AuthServiceImpl implements IAuthService {
         }
         UserEntity user = userRepository.findById(userId)
                 .filter(UserEntity::isActive)
+                .filter(candidate -> !candidate.credentialsChangedAfter(sessionStartedAt))
                 .orElseThrow(() -> new UnauthorizedException(SESSION_ENDED_ERROR));
         return issueToken(user, sessionId, sessionStartedAt, now);
     }

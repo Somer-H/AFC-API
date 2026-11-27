@@ -77,6 +77,12 @@ public class PaymentAppointmentEntity {
         setSuggestedAt(suggestedAt);
     }
 
+    public void complete(Instant decidedAt, Long decidedBy) {
+        setStatus(AppointmentStatus.COMPLETED);
+        setDecidedAt(decidedAt);
+        setDecidedBy(decidedBy);
+    }
+
     public boolean isActive() {
         return status == AppointmentStatus.PENDING || status == AppointmentStatus.ACCEPTED;
     }

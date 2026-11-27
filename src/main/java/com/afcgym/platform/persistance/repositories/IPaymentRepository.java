@@ -13,7 +13,7 @@ import org.springframework.data.jpa.repository.Lock;
 
 public interface IPaymentRepository extends JpaRepository<@NonNull PaymentEntity, @NonNull Long> {
 
-    List<PaymentEntity> findByMemberIdOrderByCreatedAtDesc(Long memberId);
+    List<PaymentEntity> findByMemberIdOrderByCreatedAtDescIdDesc(Long memberId);
 
     List<PaymentEntity> findByStatusAndApprovedAtGreaterThanEqualAndApprovedAtLessThan(
             PaymentStatus status, Instant from, Instant to);
