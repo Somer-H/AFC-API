@@ -121,7 +121,7 @@ class ProductServiceImplTest {
     void whenSearch_thenDelegateToTheRepository() {
         when(productRepository.findAll(any(Specification.class))).thenReturn(List.of(existingProduct));
 
-        List<ProductEntity> result = productService.search(null, null);
+        List<ProductEntity> result = productService.search(null, null, null);
 
         assertEquals(1, result.size());
     }

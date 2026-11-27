@@ -13,7 +13,7 @@ public interface IProductService {
 
     ProductEntity getById(Long id);
 
-    List<ProductEntity> search(String search, Boolean lowStock);
+    List<ProductEntity> search(String search, Long categoryId, Boolean lowStock);
 
     ProductEntity update(Long id, UpdateProductCommand command);
 

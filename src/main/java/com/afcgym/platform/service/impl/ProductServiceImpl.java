@@ -63,10 +63,13 @@ public class ProductServiceImpl implements IProductService {
     }
 
     @Override
-    public List<ProductEntity> search(String search, Boolean lowStock) {
+    public List<ProductEntity> search(String search, Long categoryId, Boolean lowStock) {
         Specification<ProductEntity> specification = (search == null || search.isBlank())
                 ? ProductSpecifications.all()
                 : ProductSpecifications.searchMatches(search);
+        if (categoryId != null) {
+            specification = specification.and(ProductSpecifications.inCategory(categoryId));
+        }
         if (Boolean.TRUE.equals(lowStock)) {
             specification = specification.and(ProductSpecifications.lowStock());
         }

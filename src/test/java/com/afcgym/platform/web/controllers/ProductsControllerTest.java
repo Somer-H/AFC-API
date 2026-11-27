@@ -2,6 +2,8 @@ package com.afcgym.platform.web.controllers;
 
 import static com.afcgym.platform.configuration.security.TestAuthentication.asRole;
 import static com.afcgym.platform.configuration.security.TestAuthentication.asUser;
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.is;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -108,6 +110,48 @@ class ProductsControllerTest {
     }
 
     @Test
+    void givenProductsOfTwoCategories_whenFilterByCategory_thenReturnOnlyThatCategory() throws Exception {
+        long supplements = createCategory("Suplementos");
+        long accessories = createCategory("Accesorios");
+        createProduct("SKU-WHEY", "Whey Protein", 10, supplements);
+        createProduct("SKU-BAR", "Barra proteica", 2, supplements);
+        createProduct("SKU-SHAKER", "Shaker proteico", 2, accessories);
+
+        mockMvc.perform(get("/v1/products").param("categoryId", String.valueOf(supplements)).with(asRole(Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[*].categoryId", everyItem(is((int) supplements))));
+    }
+
+    @Test
+    void givenProductsOfTwoCategories_whenCombineCategorySearchAndLowStock_thenApplyEveryFilter() throws Exception {
+        long supplements = createCategory("Suplementos");
+        long accessories = createCategory("Accesorios");
+        createProduct("SKU-WHEY", "Whey proteico", 10, supplements);
+        createProduct("SKU-BAR", "Barra proteica", 2, supplements);
+        createProduct("SKU-SHAKER", "Shaker proteico", 2, accessories);
+
+        mockMvc.perform(get("/v1/products")
+                        .param("search", "proteic")
+                        .param("categoryId", String.valueOf(supplements))
+                        .param("lowStock", "true")
+                        .with(asRole(Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].code").value("SKU-BAR"));
+    }
+
+    @Test
+    void givenACategoryWithoutProducts_whenFilterByIt_thenReturnAnEmptyList() throws Exception {
+        long empty = createCategory("Ropa");
+        createProduct("SKU-WHEY", "Whey Protein", 10);
+
+        mockMvc.perform(get("/v1/products").param("categoryId", String.valueOf(empty)).with(asRole(Role.ADMIN)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
     void givenProducts_whenSearchByName_thenReturnMatchingOnes() throws Exception {
         createProduct("SKU-A", "Whey Protein", 10);
         createProduct("SKU-B", "Shaker", 10);
@@ -174,11 +218,28 @@ class ProductsControllerTest {
     }
 
     private long createProduct(String code, String name, int stock) throws Exception {
-        String body = "{\"code\":\"" + code + "\",\"name\":\"" + name + "\",\"price\":100,\"stock\":" + stock + "}";
+        return createProduct(code, name, stock, null);
+    }
+
+    private long createProduct(String code, String name, int stock, Long categoryId) throws Exception {
+        String body = "{\"code\":\"" + code + "\",\"name\":\"" + name + "\",\"price\":100,\"stock\":" + stock
+                + (categoryId == null ? "" : ",\"categoryId\":" + categoryId) + "}";
         String response = mockMvc.perform(post("/v1/products")
                         .with(asRole(Role.ADMIN))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+        return ((Number) JsonPath.read(response, "$.id")).longValue();
+    }
+
+    private long createCategory(String name) throws Exception {
+        String response = mockMvc.perform(post("/v1/categories")
+                        .with(asRole(Role.ADMIN))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\"}"))
+                .andExpect(status().isCreated())
                 .andReturn()
                 .getResponse()
                 .getContentAsString();
