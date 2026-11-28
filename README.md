@@ -57,7 +57,7 @@ Pasa cuando un antivirus o proxy inspecciona HTTPS. En IntelliJ:
 
 ### Pruebas
 
-Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 57 clases de prueba (476 pruebas) ya pasan en
+Clic derecho sobre la carpeta `src/test/java` > **Run 'All Tests'**. Las 57 clases de prueba (479 pruebas) ya pasan en
 este repositorio (`./mvnw test`, perfil `test`, H2 en memoria).
 
 ## Perfiles
@@ -297,7 +297,9 @@ mismo endpoint genérico (`PATCH /v1/payments/{id}/approve`), en vez de acoplar 
 - `POST /v1/products` exige `code` (único, `409` si se repite), `name` y `price`. `stock` arranca en 0 y `minStock`
   en 5 si no se mandan.
 - `lowStock` en la respuesta se calcula al vuelo (`stock <= minStock`, HU-23), no se guarda.
-  `GET /v1/products?lowStock=true` lista solo los productos en alerta; `?search=` busca por nombre o código.
+  `GET /v1/products?lowStock=true` lista solo los productos en alerta; `?search=` busca por nombre o código y
+  `?categoryId=` deja solo los de esa categoría (HU-21). Los tres filtros son opcionales y se combinan:
+  `GET /v1/products?search=prote&categoryId=1&lowStock=true`.
 - `POST /v1/products/{id}/inventory-movements` registra una entrada de inventario (compra, HU-22): suma al stock,
   guarda cantidad, costo unitario, stock resultante y el id del admin que la registró (sale del token).
   `GET` sobre la misma ruta da el historial de movimientos.

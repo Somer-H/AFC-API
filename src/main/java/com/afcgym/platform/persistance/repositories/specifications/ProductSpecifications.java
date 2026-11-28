@@ -20,6 +20,10 @@ public final class ProductSpecifications {
                 cb.like(cb.lower(root.get("code")), pattern));
     }
 
+    public static Specification<@NonNull ProductEntity> inCategory(Long categoryId) {
+        return (root, query, cb) -> cb.equal(root.get("categoryId"), categoryId);
+    }
+
     public static Specification<@NonNull ProductEntity> active() {
         return (root, query, cb) -> cb.isTrue(root.get("active"));
     }

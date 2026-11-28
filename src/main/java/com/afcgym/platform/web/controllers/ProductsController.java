@@ -57,11 +57,12 @@ public class ProductsController {
     }
 
     @GetMapping
-    @Operation(summary = "Search products by name or code, optionally filtered by low stock")
+    @Operation(summary = "Search products by name or code, optionally filtered by category and low stock; filters combine")
     public List<ProductResponse> search(
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) Long categoryId,
             @RequestParam(required = false) Boolean lowStock) {
-        return productService.search(search, lowStock).stream().map(productMapper::toResponse).toList();
+        return productService.search(search, categoryId, lowStock).stream().map(productMapper::toResponse).toList();
     }
 
     @GetMapping("/{id}")
